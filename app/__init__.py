@@ -40,3 +40,7 @@ def create_app():
     
     return app
 
+
+# Создаем приложение для Gunicorn
+app = create_app()
+
