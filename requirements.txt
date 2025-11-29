@@ -1,0 +1,29 @@
+# MyGov Backend - Зависимости
+
+# Flask
+Flask==3.0.0
+flask-cors==4.0.0
+
+# База данных
+psycopg2-binary==2.9.9
+
+# DOCX генерация
+python-docx==1.1.0
+
+# QR-код (простой, без стилизации)
+qrcode==7.4.2
+Pillow==10.1.0
+
+# Хранилище MinIO
+minio==7.2.0
+
+# Авторизация
+bcrypt==4.1.1
+PyJWT==2.8.0
+
+# Конфигурация
+python-dotenv==1.0.0
+
+# Production WSGI сервер
+gunicorn==21.2.0
+

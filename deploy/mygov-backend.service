@@ -1,0 +1,25 @@
+[Unit]
+Description=MyGov Backend Gunicorn Application Server
+After=network.target postgresql.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/my-gov-backend
+Environment="PATH=/var/www/my-gov-backend/venv/bin"
+ExecStart=/var/www/my-gov-backend/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 300 \
+    --access-logfile /var/log/mygov-backend/access.log \
+    --error-logfile /var/log/mygov-backend/error.log \
+    --log-level info \
+    --capture-output \
+    app:app
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
