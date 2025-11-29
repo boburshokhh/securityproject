@@ -609,20 +609,33 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
     Returns:
         str: Путь к PDF файлу или None
     """
+    temp_docx = None
     try:
+        print(f"[DEBUG] convert_docx_to_pdf: Начало конвертации, docx_path={docx_path}")
+        
         # Получаем DOCX из хранилища
         if docx_path.startswith('minio://'):
+            print(f"[DEBUG] Получение DOCX из MinIO: {docx_path}")
             docx_data = storage_manager.get_file(docx_path)
             if not docx_data:
                 print("ERROR: Не удалось получить DOCX из MinIO")
                 return None
             
-            # Сохраняем временно
-            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-            temp_docx = os.path.join(UPLOAD_FOLDER, f"temp_{document_uuid}.docx")
+            # Сохраняем временно в /tmp для лучшей совместимости
+            temp_dir = os.environ.get('TMPDIR', '/tmp')
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_docx = os.path.join(temp_dir, f"temp_{document_uuid}.docx")
+            print(f"[DEBUG] Сохранение временного DOCX: {temp_docx}")
             with open(temp_docx, 'wb') as f:
                 f.write(docx_data)
             docx_path = temp_docx
+        
+        # Проверяем существование файла
+        if not os.path.exists(docx_path):
+            print(f"ERROR: DOCX файл не найден: {docx_path}")
+            return None
+        
+        print(f"[DEBUG] DOCX файл существует: {docx_path}, размер: {os.path.getsize(docx_path)} bytes")
         
         # Конвертируем с помощью LibreOffice
         libreoffice_cmd = find_libreoffice()
@@ -630,30 +643,86 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             print("WARNING: LibreOffice не найден, PDF не будет создан")
             return None
         
-        output_dir = UPLOAD_FOLDER
+        print(f"[DEBUG] Используется LibreOffice: {libreoffice_cmd}")
+        
+        # Используем /tmp для выходной директории (более надежно для www-data)
+        output_dir = os.environ.get('TMPDIR', '/tmp')
         os.makedirs(output_dir, exist_ok=True)
+        print(f"[DEBUG] Выходная директория: {output_dir}")
+        
+        # Абсолютный путь к входному файлу
+        abs_docx_path = os.path.abspath(docx_path)
+        print(f"[DEBUG] Абсолютный путь к DOCX: {abs_docx_path}")
         
         cmd = [
             libreoffice_cmd,
             '--headless',
+            '--nodefault',
+            '--nolockcheck',
+            '--nologo',
+            '--norestore',
+            '--invisible',
             '--convert-to', 'pdf',
             '--outdir', output_dir,
-            os.path.abspath(docx_path)
+            abs_docx_path
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        print(f"[DEBUG] Команда конвертации: {' '.join(cmd)}")
+        
+        # Устанавливаем переменные окружения для LibreOffice
+        env = os.environ.copy()
+        env['HOME'] = os.environ.get('HOME', '/var/www')
+        env['TMPDIR'] = output_dir
+        env['TMP'] = output_dir
+        env['TEMP'] = output_dir
+        
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=120,
+            env=env,
+            cwd=output_dir
+        )
+        
+        print(f"[DEBUG] Код возврата LibreOffice: {result.returncode}")
+        if result.stdout:
+            print(f"[DEBUG] Stdout: {result.stdout}")
+        if result.stderr:
+            print(f"[DEBUG] Stderr: {result.stderr}")
         
         if result.returncode != 0:
-            print(f"ERROR LibreOffice: {result.stderr}")
+            print(f"ERROR LibreOffice (код {result.returncode}): {result.stderr}")
+            if result.stdout:
+                print(f"Stdout: {result.stdout}")
             return None
         
         # Находим созданный PDF
-        pdf_filename = os.path.splitext(os.path.basename(docx_path))[0] + '.pdf'
+        # LibreOffice создает PDF с тем же именем, но расширением .pdf
+        docx_basename = os.path.splitext(os.path.basename(docx_path))[0]
+        pdf_filename = docx_basename + '.pdf'
         pdf_path = os.path.join(output_dir, pdf_filename)
+        
+        print(f"[DEBUG] Ожидаемый PDF: {pdf_path}")
         
         if not os.path.exists(pdf_path):
             print(f"ERROR: PDF не найден: {pdf_path}")
-            return None
+            # Пробуем найти любой PDF в директории
+            pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
+            if pdf_files:
+                print(f"[DEBUG] Найдены PDF файлы в директории: {pdf_files}")
+                pdf_path = os.path.join(output_dir, pdf_files[0])
+                print(f"[DEBUG] Используем: {pdf_path}")
+            else:
+                print(f"[DEBUG] Содержимое директории {output_dir}:")
+                try:
+                    for item in os.listdir(output_dir):
+                        print(f"  - {item}")
+                except Exception as e:
+                    print(f"  Ошибка при чтении директории: {e}")
+                return None
+        
+        print(f"[DEBUG] PDF найден: {pdf_path}, размер: {os.path.getsize(pdf_path)} bytes")
         
         # Сохраняем в MinIO
         with open(pdf_path, 'rb') as f:
@@ -698,12 +767,26 @@ def find_libreoffice():
             '/usr/bin/libreoffice',
             '/usr/bin/soffice',
             '/usr/local/bin/libreoffice',
+            '/snap/bin/libreoffice',  # Snap пакет
         ]
     
+    # Сначала проверяем стандартные пути
     for path in paths:
-        if os.path.exists(path):
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            print(f"[DEBUG] find_libreoffice: Найден в стандартном пути: {path}")
             return path
     
     # Пробуем найти в PATH
-    return shutil.which('libreoffice') or shutil.which('soffice')
+    libreoffice_path = shutil.which('libreoffice')
+    if libreoffice_path:
+        print(f"[DEBUG] find_libreoffice: Найден через PATH: {libreoffice_path}")
+        return libreoffice_path
+    
+    soffice_path = shutil.which('soffice')
+    if soffice_path:
+        print(f"[DEBUG] find_libreoffice: Найден soffice через PATH: {soffice_path}")
+        return soffice_path
+    
+    print("[DEBUG] find_libreoffice: LibreOffice не найден")
+    return None
 

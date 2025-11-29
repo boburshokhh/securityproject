@@ -7,6 +7,13 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/my-gov-backend
 Environment="PATH=/var/www/my-gov-backend/venv/bin"
+Environment="HOME=/var/www"
+Environment="TMPDIR=/tmp"
+Environment="TMP=/tmp"
+Environment="TEMP=/tmp"
+Environment="XDG_CACHE_HOME=/var/www/.cache"
+Environment="XDG_CONFIG_HOME=/var/www/.config"
+Environment="XDG_DATA_HOME=/var/www/.local/share"
 ExecStart=/var/www/my-gov-backend/venv/bin/gunicorn \
     --workers 4 \
     --bind 127.0.0.1:5001 \
