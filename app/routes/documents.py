@@ -76,8 +76,23 @@ def create_document():
     except Exception as e:
         print(f"ERROR create_document: {e}")
         import traceback
-        print(traceback.format_exc())
-        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+        error_trace = traceback.format_exc()
+        print(error_trace)
+        
+        # Более детальное сообщение об ошибке для отладки
+        error_message = str(e)
+        if 'DB_PASSWORD' in error_message or 'password' in error_message.lower():
+            error_message = 'Ошибка подключения к базе данных. Проверьте настройки подключения.'
+        elif 'template' in error_message.lower() or 'шаблон' in error_message.lower():
+            error_message = 'Ошибка при работе с шаблоном документа.'
+        elif 'minio' in error_message.lower() or 'storage' in error_message.lower():
+            error_message = 'Ошибка при сохранении файла в хранилище.'
+        
+        return jsonify({
+            'success': False, 
+            'message': f'Ошибка создания документа: {error_message}',
+            'error_type': type(e).__name__
+        }), 500
 
 
 @documents_bp.route('/<int:doc_id>', methods=['GET'])

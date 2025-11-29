@@ -143,21 +143,36 @@ def db_update(table, data, where, params=None):
 
 def get_next_mygov_doc_number():
     """Получает следующий номер документа для MyGov (последний + 1)"""
-    query = """
-        SELECT mygov_doc_number 
-        FROM documents 
-        WHERE type_doc = 2 
-          AND mygov_doc_number IS NOT NULL 
-          AND mygov_doc_number ~ '^[0-9]+$'
-        ORDER BY CAST(mygov_doc_number AS INTEGER) DESC 
-        LIMIT 1
-    """
-    result = db_query(query, fetch_one=True)
-    
-    if result and result.get('mygov_doc_number'):
-        last_number = int(result['mygov_doc_number'])
-        return str(last_number + 1)
-    else:
-        # Начальный номер для MyGov документов
+    try:
+        query = """
+            SELECT mygov_doc_number 
+            FROM documents 
+            WHERE type_doc = 2 
+              AND mygov_doc_number IS NOT NULL 
+              AND mygov_doc_number ~ '^[0-9]+$'
+            ORDER BY CAST(mygov_doc_number AS INTEGER) DESC 
+            LIMIT 1
+        """
+        result = db_query(query, fetch_one=True)
+        
+        if result and result.get('mygov_doc_number'):
+            try:
+                last_number = int(result['mygov_doc_number'])
+                next_number = str(last_number + 1)
+                print(f"[DEBUG] get_next_mygov_doc_number: Найден последний номер {last_number}, следующий: {next_number}")
+                return next_number
+            except (ValueError, TypeError) as e:
+                print(f"ERROR get_next_mygov_doc_number: Не удалось преобразовать номер '{result.get('mygov_doc_number')}': {e}")
+                # Начальный номер для MyGov документов
+                return '227817728'
+        else:
+            # Начальный номер для MyGov документов
+            print(f"[DEBUG] get_next_mygov_doc_number: Документов не найдено, используем начальный номер 227817728")
+            return '227817728'
+    except Exception as e:
+        print(f"ERROR get_next_mygov_doc_number: {e}")
+        import traceback
+        print(traceback.format_exc())
+        # Возвращаем начальный номер при ошибке
         return '227817728'
 

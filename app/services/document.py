@@ -31,11 +31,24 @@ def generate_document(document_data, app=None):
     Returns:
         dict: Созданный документ или None при ошибке
     """
+    document_id = None
     try:
+        print(f"[DEBUG] generate_document: Начало генерации документа")
+        print(f"[DEBUG] Данные документа: {list(document_data.keys())}")
+        
         # Генерируем уникальные идентификаторы
         document_uuid = str(uuid.uuid4())
         pin_code = generate_pin_code()
-        mygov_doc_number = get_next_mygov_doc_number()
+        print(f"[DEBUG] Сгенерирован UUID: {document_uuid}, PIN: {pin_code}")
+        
+        try:
+            mygov_doc_number = get_next_mygov_doc_number()
+            print(f"[DEBUG] Получен номер документа: {mygov_doc_number}")
+        except Exception as e:
+            print(f"ERROR get_next_mygov_doc_number: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise
         
         # Стандартный doc_number для совместимости с БД
         doc_number = f"№ MG {mygov_doc_number}"
@@ -67,6 +80,7 @@ def generate_document(document_data, app=None):
             'created_by': document_data.get('created_by')
         }
         
+        print(f"[DEBUG] Вставка в БД...")
         # Вставляем в БД
         created_document = db_insert('documents', db_data)
         if not created_document:
@@ -74,31 +88,56 @@ def generate_document(document_data, app=None):
             return None
         
         document_id = created_document['id']
+        print(f"[DEBUG] Документ создан в БД с ID: {document_id}")
         
         # Генерируем DOCX
+        print(f"[DEBUG] Генерация DOCX...")
         docx_path = fill_docx_template(created_document, app)
         if not docx_path:
             print("ERROR: Не удалось создать DOCX")
+            # Удаляем документ из БД если не удалось создать DOCX
+            if document_id:
+                try:
+                    db_query("DELETE FROM documents WHERE id = %s", [document_id])
+                except:
+                    pass
             return None
+        
+        print(f"[DEBUG] DOCX создан: {docx_path}")
         
         # Обновляем путь к DOCX в БД
         db_update('documents', {'docx_path': docx_path}, 'id = %s', [document_id])
         
         # Конвертируем в PDF
+        print(f"[DEBUG] Конвертация в PDF...")
         pdf_path = convert_docx_to_pdf(docx_path, document_uuid, app)
         if pdf_path:
+            print(f"[DEBUG] PDF создан: {pdf_path}")
             db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [document_id])
+        else:
+            print("WARNING: PDF не был создан, но документ сохранен")
         
         # Возвращаем результат
         created_document['docx_path'] = docx_path
         created_document['pdf_path'] = pdf_path
         
+        print(f"[DEBUG] generate_document: Успешно завершено")
         return created_document
         
     except Exception as e:
         print(f"ERROR generate_document: {e}")
         import traceback
-        print(traceback.format_exc())
+        error_trace = traceback.format_exc()
+        print(error_trace)
+        
+        # Удаляем документ из БД если была ошибка после создания
+        if document_id:
+            try:
+                print(f"[DEBUG] Удаление документа {document_id} из БД из-за ошибки")
+                db_query("DELETE FROM documents WHERE id = %s", [document_id])
+            except Exception as cleanup_error:
+                print(f"ERROR при очистке: {cleanup_error}")
+        
         return None
 
 
@@ -124,11 +163,31 @@ def fill_docx_template(document_data, app=None):
         if app:
             template_folder = app.config.get('TEMPLATE_FOLDER', 'templates')
         
-        template_path = os.path.join(template_folder, 'template_mygov.docx')
+        # Получаем абсолютный путь к шаблону
+        if app:
+            # Используем корневую директорию приложения
+            app_root = app.root_path
+            template_path = os.path.join(app_root, template_folder, 'template_mygov.docx')
+        else:
+            # Используем относительный путь от текущей директории
+            template_path = os.path.join(template_folder, 'template_mygov.docx')
+            # Пробуем абсолютный путь
+            if not os.path.exists(template_path):
+                # Пробуем от корня проекта
+                current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                template_path = os.path.join(current_dir, template_folder, 'template_mygov.docx')
+        
+        print(f"[DEBUG] fill_docx_template: Ищем шаблон по пути: {template_path}")
         
         if not os.path.exists(template_path):
             print(f"ERROR: Шаблон не найден: {template_path}")
+            print(f"[DEBUG] Текущая рабочая директория: {os.getcwd()}")
+            print(f"[DEBUG] Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
+            if app:
+                print(f"[DEBUG] app.root_path: {app.root_path}")
             return None
+        
+        print(f"[DEBUG] Шаблон найден: {template_path}")
         
         doc = Document(template_path)
         
