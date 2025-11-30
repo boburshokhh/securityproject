@@ -127,24 +127,38 @@ def get_document(doc_id):
 def download_document(doc_id):
     """Скачивание PDF документа"""
     try:
+        logger.info(f"[API:DOWNLOAD] Запрос на скачивание PDF документа {doc_id}")
+        
         document = db_select('documents', 'id = %s AND type_doc = 2', [doc_id], fetch_one=True)
         
         if not document:
+            logger.warning(f"[API:DOWNLOAD] Документ {doc_id} не найден")
             return jsonify({'success': False, 'message': 'Документ не найден'}), 404
+        
+        logger.debug(f"[API:DOWNLOAD] Документ найден: doc_number={document.get('mygov_doc_number')}")
         
         pdf_path = document.get('pdf_path')
         if not pdf_path:
+            logger.warning(f"[API:DOWNLOAD] PDF путь не указан для документа {doc_id}")
             return jsonify({'success': False, 'message': 'PDF не найден'}), 404
         
+        logger.debug(f"[API:DOWNLOAD] PDF путь: {pdf_path}")
+        
         # Получаем файл из хранилища
+        logger.debug(f"[API:DOWNLOAD] Получение файла из хранилища: {pdf_path}")
         pdf_data = storage_manager.get_file(pdf_path)
         
         if not pdf_data:
+            logger.error(f"[API:DOWNLOAD] Файл не получен из хранилища: {pdf_path}")
             return jsonify({'success': False, 'message': 'Файл не найден'}), 404
+        
+        logger.debug(f"[API:DOWNLOAD] Файл получен, размер: {len(pdf_data)} bytes")
         
         # Формируем имя файла
         mygov_doc_number = document.get('mygov_doc_number', '')
         filename = f"mygov_{mygov_doc_number}.pdf" if mygov_doc_number else f"document_{doc_id}.pdf"
+        
+        logger.info(f"[API:DOWNLOAD] Отправка файла: {filename}, размер: {len(pdf_data)} bytes")
         
         return send_file(
             BytesIO(pdf_data),
@@ -154,7 +168,7 @@ def download_document(doc_id):
         )
         
     except Exception as e:
-        print(f"ERROR download_document: {e}")
+        log_error_with_context(e, f"download_document failed, doc_id={doc_id}")
         return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
 
 
@@ -162,24 +176,38 @@ def download_document(doc_id):
 def download_docx(doc_id):
     """Скачивание DOCX документа"""
     try:
+        logger.info(f"[API:DOWNLOAD_DOCX] Запрос на скачивание DOCX документа {doc_id}")
+        
         document = db_select('documents', 'id = %s AND type_doc = 2', [doc_id], fetch_one=True)
         
         if not document:
+            logger.warning(f"[API:DOWNLOAD_DOCX] Документ {doc_id} не найден")
             return jsonify({'success': False, 'message': 'Документ не найден'}), 404
+        
+        logger.debug(f"[API:DOWNLOAD_DOCX] Документ найден: doc_number={document.get('mygov_doc_number')}")
         
         docx_path = document.get('docx_path')
         if not docx_path:
+            logger.warning(f"[API:DOWNLOAD_DOCX] DOCX путь не указан для документа {doc_id}")
             return jsonify({'success': False, 'message': 'DOCX не найден'}), 404
         
+        logger.debug(f"[API:DOWNLOAD_DOCX] DOCX путь: {docx_path}")
+        
         # Получаем файл из хранилища
+        logger.debug(f"[API:DOWNLOAD_DOCX] Получение файла из хранилища: {docx_path}")
         docx_data = storage_manager.get_file(docx_path)
         
         if not docx_data:
+            logger.error(f"[API:DOWNLOAD_DOCX] Файл не получен из хранилища: {docx_path}")
             return jsonify({'success': False, 'message': 'Файл не найден'}), 404
+        
+        logger.debug(f"[API:DOWNLOAD_DOCX] Файл получен, размер: {len(docx_data)} bytes")
         
         # Формируем имя файла
         mygov_doc_number = document.get('mygov_doc_number', '')
         filename = f"mygov_{mygov_doc_number}.docx" if mygov_doc_number else f"document_{doc_id}.docx"
+        
+        logger.info(f"[API:DOWNLOAD_DOCX] Отправка файла: {filename}, размер: {len(docx_data)} bytes")
         
         return send_file(
             BytesIO(docx_data),
@@ -189,7 +217,7 @@ def download_docx(doc_id):
         )
         
     except Exception as e:
-        print(f"ERROR download_docx: {e}")
+        log_error_with_context(e, f"download_docx failed, doc_id={doc_id}")
         return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
 
 
