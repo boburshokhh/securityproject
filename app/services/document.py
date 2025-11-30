@@ -224,12 +224,24 @@ def fill_docx_template(document_data, app=None):
         logger.debug(f"[DOCX_TEMPLATE:FOUND] Шаблон найден: {template_path}")
         
         doc = Document(template_path)
+        logger.debug(f"[DOCX_TEMPLATE] Документ загружен из шаблона")
         
         # Подготавливаем замены
+        logger.debug(f"[DOCX_TEMPLATE] Подготовка замен плейсхолдеров...")
         replacements = prepare_replacements(document_data)
+        logger.info(f"[DOCX_TEMPLATE] Подготовлено {len(replacements)} замен")
+        logger.debug(f"[DOCX_TEMPLATE] Примеры замен: {list(replacements.keys())[:5]}")
+        
+        # Логируем некоторые значения для проверки
+        sample_keys = ['{{patient_name}}', '{{doc_number}}', '{{organization}}', '{{doctor_name}}']
+        for key in sample_keys:
+            if key in replacements:
+                logger.debug(f"[DOCX_TEMPLATE] {key} = '{replacements[key]}'")
         
         # Заменяем плейсхолдеры
+        logger.debug(f"[DOCX_TEMPLATE] Начало замены плейсхолдеров в документе...")
         replace_placeholders(doc, replacements)
+        logger.debug(f"[DOCX_TEMPLATE] Замена плейсхолдеров завершена")
         
         # Добавляем QR-код
         add_qr_code(doc, document_data, app)
@@ -337,9 +349,12 @@ def prepare_replacements(document_data):
 
 def replace_placeholders(doc, replacements):
     """Заменяет плейсхолдеры в документе"""
+    total_replacements = 0
+    found_placeholders = []
     
     def process_paragraph(paragraph):
         """Обрабатывает один параграф"""
+        nonlocal total_replacements
         text = paragraph.text
         
         # Пропускаем параграфы с {{qr_code}} - он обрабатывается отдельно (нужно изображение)
@@ -347,10 +362,15 @@ def replace_placeholders(doc, replacements):
             return
         
         has_replacement = False
+        replaced_keys = []
         for key, value in replacements.items():
             if key in text:
                 text = text.replace(key, str(value))
                 has_replacement = True
+                replaced_keys.append(key)
+                total_replacements += 1
+                if key not in found_placeholders:
+                    found_placeholders.append(key)
         
         if has_replacement:
             # Если была замена, обновляем текст параграфа
@@ -395,6 +415,8 @@ def replace_placeholders(doc, replacements):
                 if style:
                     run.style = style
 
+    logger.debug(f"[DOCX_REPLACE] Начало обработки документа: {len(doc.paragraphs)} параграфов, {len(doc.tables)} таблиц")
+    
     # 1. Обрабатываем тело документа
     for para in doc.paragraphs:
         process_paragraph(para)
@@ -402,10 +424,11 @@ def replace_placeholders(doc, replacements):
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                for para in cell.paragraphs:
-                    process_paragraph(para)
-                    
+                    for para in cell.paragraphs:
+                        process_paragraph(para)
+                        
     # 2. Обрабатываем колонтитулы (Headers & Footers)
+    logger.debug(f"[DOCX_REPLACE] Обработка колонтитулов...")
     for section in doc.sections:
         # Headers
         for header in [section.header, section.first_page_header, section.even_page_header]:
@@ -428,6 +451,12 @@ def replace_placeholders(doc, replacements):
                         for cell in row.cells:
                             for para in cell.paragraphs:
                                 process_paragraph(para)
+    
+    logger.info(f"[DOCX_REPLACE] Замена завершена: всего замен {total_replacements}, найдено плейсхолдеров: {len(found_placeholders)}")
+    if found_placeholders:
+        logger.debug(f"[DOCX_REPLACE] Найденные плейсхолдеры: {found_placeholders}")
+    else:
+        logger.warning(f"[DOCX_REPLACE] ВНИМАНИЕ: Плейсхолдеры не найдены в документе! Проверьте шаблон.")
 
 
 def add_qr_code(doc, document_data, app=None):
