@@ -30,7 +30,7 @@ MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
 MINIO_SECURE = os.getenv('MINIO_SECURE', 'False').lower() == 'true'
 MINIO_BUCKET_NAME = os.getenv('MINIO_BUCKET_NAME', 'mygov-documents')
 
-# Frontend URL для генерации QR-кодов
+# Frontend URL для генерации QR-кодов (для проверки документов)
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://repositorymygov.netlify.app')
 
 # Тип документа для MyGov (всегда 2)

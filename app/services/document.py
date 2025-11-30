@@ -616,9 +616,12 @@ def add_qr_code(doc, document_data, app=None):
         document_uuid = document_data.get('uuid', '')
         pin_code = document_data.get('pin_code', '')
         
-        # Генерируем URL для QR-кода
+        # Генерируем URL для QR-кода (ссылка на страницу проверки документа)
         frontend_url = FRONTEND_URL.rstrip('/')
-        qr_url = f"{frontend_url}/access/{document_uuid}"
+        qr_url = f"{frontend_url}/verify/{document_uuid}"
+        
+        logger.info(f"[QR_CODE] Генерация QR-кода для проверки документа: {qr_url}")
+        logger.debug(f"[QR_CODE] UUID: {document_uuid}, PIN: {pin_code}")
         
         # Генерируем простой QR-код
         qr_img = generate_simple_qr(qr_url, box_size=3, border=1)
