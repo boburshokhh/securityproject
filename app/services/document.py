@@ -6,6 +6,7 @@ import re
 import uuid
 import subprocess
 import shutil
+import tempfile
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt, Inches, Cm
@@ -684,223 +685,194 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
         log_pdf_conversion("START", "Начало конвертации DOCX в PDF", 
                           docx_path=docx_path, uuid=document_uuid)
         
-        # Получаем DOCX из хранилища
-        if docx_path.startswith('minio://'):
-            log_pdf_conversion("MINIO_GET", "Получение DOCX из MinIO", minio_path=docx_path)
-            docx_data = storage_manager.get_file(docx_path)
-            if not docx_data:
-                logger.error(f"[PDF_CONV:MINIO_FAIL] Не удалось получить DOCX из MinIO: {docx_path}")
-                return None
-            
-            # Сохраняем временно в /tmp для лучшей совместимости
-            # Используем tempfile для безопасного создания временных файлов
-            import tempfile
-            temp_dir = os.environ.get('TMPDIR', '/tmp')
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            # Создаем временный файл с правильными правами
-            try:
-                # Пробуем создать файл с правами для текущего пользователя
-                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=temp_dir)
+        # Создаем уникальную временную директорию для этого процесса
+        # Это решает проблему прав доступа, если /tmp/.config создан рутом или другим пользователем
+        with tempfile.TemporaryDirectory(prefix=f'lo_conv_{document_uuid}_') as unique_temp_dir:
+            # Используем уникальную директорию как output_dir и HOME
+            output_dir = unique_temp_dir
+            log_pdf_conversion("TEMP_DIR", "Создана уникальная временная директория", dir=output_dir)
+
+            # Получаем DOCX из хранилища
+            if docx_path.startswith('minio://'):
+                log_pdf_conversion("MINIO_GET", "Получение DOCX из MinIO", minio_path=docx_path)
+                docx_data = storage_manager.get_file(docx_path)
+                if not docx_data:
+                    logger.error(f"[PDF_CONV:MINIO_FAIL] Не удалось получить DOCX из MinIO: {docx_path}")
+                    return None
+                
+                # Сохраняем во временный файл в нашей уникальной директории
+                temp_docx = os.path.join(output_dir, f"input_{document_uuid}.docx")
                 log_pdf_conversion("TEMP_SAVE", "Сохранение временного DOCX", temp_path=temp_docx)
-                with os.fdopen(temp_fd, 'wb') as f:
+                with open(temp_docx, 'wb') as f:
                     f.write(docx_data)
-                # Устанавливаем права на чтение/запись для всех (для www-data)
+                # Устанавливаем права
                 os.chmod(temp_docx, 0o666)
                 docx_path = temp_docx
-            except PermissionError as perm_error:
-                logger.error(f"[PDF_CONV:TEMP_PERM_ERROR] Ошибка прав доступа при создании временного файла: {perm_error}")
-                # Пробуем альтернативный путь
-                alt_temp_dir = os.path.join(os.environ.get('HOME', '/var/www'), '.tmp')
-                os.makedirs(alt_temp_dir, exist_ok=True)
-                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=alt_temp_dir)
-                with os.fdopen(temp_fd, 'wb') as f:
-                    f.write(docx_data)
-                os.chmod(temp_docx, 0o666)
-                docx_path = temp_docx
-                log_pdf_conversion("TEMP_SAVE_ALT", "Сохранение временного DOCX в альтернативную директорию", temp_path=temp_docx)
-        elif not os.path.exists(docx_path):
-            # Старый формат пути (локальный файл) - пробуем получить из MinIO по UUID
-            logger.warning(f"[PDF_CONV:OLD_FORMAT] Обнаружен старый формат пути, пробуем получить из MinIO: {docx_path}")
-            
-            # Пробуем несколько вариантов получения файла из MinIO
-            possible_paths = []
-            
-            # Вариант 1: Используем UUID напрямую
-            if document_uuid:
-                possible_paths.append(f"minio://dmed/{document_uuid}.docx")
-            
-            # Вариант 2: Извлекаем имя файла из старого пути
-            filename = os.path.basename(docx_path)
-            if filename and filename.endswith('.docx'):
-                possible_paths.append(f"minio://dmed/{filename}")
-                # Вариант 3: Без расширения
-                name_without_ext = filename.replace('.docx', '')
-                if name_without_ext:
-                    possible_paths.append(f"minio://dmed/{name_without_ext}.docx")
-            
-            docx_data = None
-            used_path = None
-            for minio_path in possible_paths:
-                log_pdf_conversion("MINIO_GET_OLD", "Попытка получить DOCX из MinIO", minio_path=minio_path)
-                docx_data = storage_manager.get_file(minio_path)
+                
+            elif not os.path.exists(docx_path):
+                # Старый формат пути (локальный файл) - пробуем получить из MinIO по UUID
+                logger.warning(f"[PDF_CONV:OLD_FORMAT] Обнаружен старый формат пути, пробуем получить из MinIO: {docx_path}")
+                
+                # Пробуем несколько вариантов получения файла из MinIO
+                possible_paths = []
+                
+                # Вариант 1: Используем UUID напрямую
+                if document_uuid:
+                    possible_paths.append(f"minio://dmed/{document_uuid}.docx")
+                
+                # Вариант 2: Извлекаем имя файла из старого пути
+                filename = os.path.basename(docx_path)
+                if filename and filename.endswith('.docx'):
+                    possible_paths.append(f"minio://dmed/{filename}")
+                    # Вариант 3: Без расширения
+                    name_without_ext = filename.replace('.docx', '')
+                    if name_without_ext:
+                        possible_paths.append(f"minio://dmed/{name_without_ext}.docx")
+                
+                docx_data = None
+                used_path = None
+                for minio_path in possible_paths:
+                    log_pdf_conversion("MINIO_GET_OLD", "Попытка получить DOCX из MinIO", minio_path=minio_path)
+                    docx_data = storage_manager.get_file(minio_path)
+                    if docx_data:
+                        used_path = minio_path
+                        logger.info(f"[PDF_CONV:MINIO_GET_OLD_SUCCESS] DOCX получен из MinIO: {minio_path}")
+                        break
+                
                 if docx_data:
-                    used_path = minio_path
-                    logger.info(f"[PDF_CONV:MINIO_GET_OLD_SUCCESS] DOCX получен из MinIO: {minio_path}")
-                    break
+                    # Сохраняем во временный файл
+                    temp_docx = os.path.join(output_dir, f"input_{document_uuid}.docx")
+                    with open(temp_docx, 'wb') as f:
+                        f.write(docx_data)
+                    os.chmod(temp_docx, 0o666)
+                    docx_path = temp_docx
+                    log_pdf_conversion("TEMP_SAVE_OLD", "Сохранение DOCX из старого формата", temp_path=temp_docx, minio_path=used_path)
+                else:
+                    logger.error(f"[PDF_CONV:OLD_FORMAT_FAIL] Не удалось получить DOCX из MinIO. Пробовали пути: {possible_paths}")
+                    return None
             
-            if docx_data:
-                # Сохраняем во временный файл
-                import tempfile
-                temp_dir = os.environ.get('TMPDIR', '/tmp')
-                os.makedirs(temp_dir, exist_ok=True)
-                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=temp_dir)
-                with os.fdopen(temp_fd, 'wb') as f:
-                    f.write(docx_data)
-                os.chmod(temp_docx, 0o666)
-                docx_path = temp_docx
-                log_pdf_conversion("TEMP_SAVE_OLD", "Сохранение DOCX из старого формата", temp_path=temp_docx, minio_path=used_path)
-            else:
-                logger.error(f"[PDF_CONV:OLD_FORMAT_FAIL] Не удалось получить DOCX из MinIO. Пробовали пути: {possible_paths}")
+            # Проверяем существование файла
+            if not os.path.exists(docx_path):
+                logger.error(f"[PDF_CONV:FILE_NOT_FOUND] DOCX файл не найден: {docx_path}")
                 return None
-        
-        # Проверяем существование файла
-        if not os.path.exists(docx_path):
-            logger.error(f"[PDF_CONV:FILE_NOT_FOUND] DOCX файл не найден: {docx_path}")
-            return None
-        
-        file_size = os.path.getsize(docx_path)
-        log_pdf_conversion("FILE_CHECK", "DOCX файл проверен", 
-                          docx_path=docx_path, file_size=file_size)
-        
-        # Конвертируем с помощью LibreOffice
-        libreoffice_cmd = find_libreoffice()
-        if not libreoffice_cmd:
-            logger.warning("[PDF_CONV:LIBREOFFICE_NOT_FOUND] LibreOffice не найден, PDF не будет создан")
-            return None
-        
-        log_pdf_conversion("LIBREOFFICE_FOUND", "LibreOffice найден", cmd=libreoffice_cmd)
-        
-        # Используем /tmp для выходной директории (более надежно для www-data)
-        output_dir = os.environ.get('TMPDIR', '/tmp')
-        os.makedirs(output_dir, exist_ok=True)
-        log_pdf_conversion("OUTPUT_DIR", "Выходная директория", output_dir=output_dir)
-        
-        # Абсолютный путь к входному файлу
-        abs_docx_path = os.path.abspath(docx_path)
-        log_pdf_conversion("ABS_PATH", "Абсолютный путь к DOCX", abs_path=abs_docx_path)
-        
-        cmd = [
-            libreoffice_cmd,
-            '--headless',
-            '--nodefault',
-            '--nolockcheck',
-            '--nologo',
-            '--norestore',
-            '--invisible',
-            '--convert-to', 'pdf',
-            '--outdir', output_dir,
-            abs_docx_path
-        ]
-        
-        log_pdf_conversion("CMD", "Команда конвертации", cmd=' '.join(cmd))
-        
-        # Устанавливаем переменные окружения для LibreOffice
-        env = os.environ.copy()
-        # Используем output_dir как HOME, чтобы LibreOffice мог писать в .config
-        # Это решает проблему с правами доступа для www-data
-        env['HOME'] = output_dir
-        env['TMPDIR'] = output_dir
-        env['TMP'] = output_dir
-        env['TEMP'] = output_dir
-        
-        log_pdf_conversion("EXEC_START", "Запуск LibreOffice", 
-                          env_home=env['HOME'], env_tmpdir=env['TMPDIR'])
-        
-        result = subprocess.run(
-            cmd, 
-            capture_output=True, 
-            text=True, 
-            timeout=120,
-            env=env,
-            cwd=output_dir
-        )
-        
-        log_pdf_conversion("EXEC_RESULT", "LibreOffice завершен", 
-                          returncode=result.returncode,
-                          stdout_len=len(result.stdout) if result.stdout else 0,
-                          stderr_len=len(result.stderr) if result.stderr else 0)
-        
-        if result.stdout:
-            logger.debug(f"[PDF_CONV:STDOUT] {result.stdout[:500]}")
-        if result.stderr:
-            logger.debug(f"[PDF_CONV:STDERR] {result.stderr[:500]}")
-        
-        if result.returncode != 0:
-            logger.error(f"[PDF_CONV:EXEC_FAIL] LibreOffice вернул код {result.returncode}")
-            if result.stderr:
-                logger.error(f"[PDF_CONV:STDERR_FULL] {result.stderr}")
+            
+            file_size = os.path.getsize(docx_path)
+            log_pdf_conversion("FILE_CHECK", "DOCX файл проверен", 
+                              docx_path=docx_path, file_size=file_size)
+            
+            # Конвертируем с помощью LibreOffice
+            libreoffice_cmd = find_libreoffice()
+            if not libreoffice_cmd:
+                logger.warning("[PDF_CONV:LIBREOFFICE_NOT_FOUND] LibreOffice не найден, PDF не будет создан")
+                return None
+            
+            log_pdf_conversion("LIBREOFFICE_FOUND", "LibreOffice найден", cmd=libreoffice_cmd)
+            
+            # Абсолютный путь к входному файлу
+            abs_docx_path = os.path.abspath(docx_path)
+            log_pdf_conversion("ABS_PATH", "Абсолютный путь к DOCX", abs_path=abs_docx_path)
+            
+            cmd = [
+                libreoffice_cmd,
+                '--headless',
+                '--nodefault',
+                '--nolockcheck',
+                '--nologo',
+                '--norestore',
+                '--invisible',
+                '--convert-to', 'pdf',
+                '--outdir', output_dir,
+                abs_docx_path
+            ]
+            
+            log_pdf_conversion("CMD", "Команда конвертации", cmd=' '.join(cmd))
+            
+            # Устанавливаем переменные окружения для LibreOffice
+            env = os.environ.copy()
+            # Используем output_dir как HOME, чтобы LibreOffice мог писать в .config
+            # Это решает проблему с правами доступа для www-data
+            env['HOME'] = output_dir
+            env['TMPDIR'] = output_dir
+            env['TMP'] = output_dir
+            env['TEMP'] = output_dir
+            
+            log_pdf_conversion("EXEC_START", "Запуск LibreOffice", 
+                              env_home=env['HOME'], env_tmpdir=env['TMPDIR'])
+            
+            result = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                timeout=120,
+                env=env,
+                cwd=output_dir
+            )
+            
+            log_pdf_conversion("EXEC_RESULT", "LibreOffice завершен", 
+                              returncode=result.returncode,
+                              stdout_len=len(result.stdout) if result.stdout else 0,
+                              stderr_len=len(result.stderr) if result.stderr else 0)
+            
             if result.stdout:
-                logger.error(f"[PDF_CONV:STDOUT_FULL] {result.stdout}")
-            return None
-        
-        # Находим созданный PDF
-        # LibreOffice создает PDF с тем же именем, но расширением .pdf
-        docx_basename = os.path.splitext(os.path.basename(docx_path))[0]
-        pdf_filename = docx_basename + '.pdf'
-        pdf_path = os.path.join(output_dir, pdf_filename)
-        
-        log_pdf_conversion("PDF_SEARCH", "Поиск созданного PDF", expected_path=pdf_path)
-        
-        if not os.path.exists(pdf_path):
-            logger.warning(f"[PDF_CONV:PDF_NOT_FOUND] Ожидаемый PDF не найден: {pdf_path}")
-            # Пробуем найти любой PDF в директории
-            pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
-            if pdf_files:
-                logger.info(f"[PDF_CONV:PDF_FOUND_ALT] Найдены альтернативные PDF: {pdf_files}")
-                pdf_path = os.path.join(output_dir, pdf_files[0])
-                log_pdf_conversion("PDF_USE_ALT", "Используется альтернативный PDF", pdf_path=pdf_path)
-            else:
-                logger.error(f"[PDF_CONV:PDF_NOT_FOUND] PDF не найден в директории {output_dir}")
-                try:
-                    dir_contents = os.listdir(output_dir)
-                    logger.debug(f"[PDF_CONV:DIR_CONTENTS] Содержимое директории: {dir_contents[:20]}")
-                except Exception as e:
-                    logger.error(f"[PDF_CONV:DIR_READ_ERROR] Ошибка при чтении директории: {e}")
+                logger.debug(f"[PDF_CONV:STDOUT] {result.stdout[:500]}")
+            if result.stderr:
+                logger.debug(f"[PDF_CONV:STDERR] {result.stderr[:500]}")
+            
+            if result.returncode != 0:
+                logger.error(f"[PDF_CONV:EXEC_FAIL] LibreOffice вернул код {result.returncode}")
+                if result.stderr:
+                    logger.error(f"[PDF_CONV:STDERR_FULL] {result.stderr}")
+                if result.stdout:
+                    logger.error(f"[PDF_CONV:STDOUT_FULL] {result.stdout}")
                 return None
-        
-        pdf_size = os.path.getsize(pdf_path)
-        log_pdf_conversion("PDF_FOUND", "PDF найден", pdf_path=pdf_path, pdf_size=pdf_size)
-        
-        # Сохраняем в MinIO
-        log_pdf_conversion("STORAGE_SAVE", "Сохранение PDF в хранилище", 
-                          pdf_size=pdf_size, uuid=document_uuid)
-        with open(pdf_path, 'rb') as f:
-            pdf_data = f.read()
-        
-        stored_path = storage_manager.save_file(
-            pdf_data,
-            f"{document_uuid}.pdf",
-            'application/pdf'
-        )
-        
-        log_pdf_conversion("STORAGE_SUCCESS", "PDF сохранен в хранилище", stored_path=stored_path)
-        
-        # Удаляем временные файлы
-        if storage_manager.use_minio:
-            try:
-                if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
-                    logger.debug(f"[PDF_CONV:CLEANUP] Временный PDF удален: {pdf_path}")
-                if temp_docx and os.path.exists(temp_docx):
-                    os.remove(temp_docx)
-                    logger.debug(f"[PDF_CONV:CLEANUP] Временный DOCX удален: {temp_docx}")
-            except Exception as cleanup_error:
-                logger.warning(f"[PDF_CONV:CLEANUP] Ошибка при удалении временных файлов: {cleanup_error}")
-        
-        log_pdf_conversion("SUCCESS", "Конвертация завершена успешно", 
-                          stored_path=stored_path, pdf_size=pdf_size)
-        return stored_path
+            
+            # Находим созданный PDF
+            # LibreOffice создает PDF с тем же именем, но расширением .pdf
+            docx_basename = os.path.splitext(os.path.basename(docx_path))[0]
+            pdf_filename = docx_basename + '.pdf'
+            pdf_path = os.path.join(output_dir, pdf_filename)
+            
+            log_pdf_conversion("PDF_SEARCH", "Поиск созданного PDF", expected_path=pdf_path)
+            
+            if not os.path.exists(pdf_path):
+                logger.warning(f"[PDF_CONV:PDF_NOT_FOUND] Ожидаемый PDF не найден: {pdf_path}")
+                # Пробуем найти любой PDF в директории
+                pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
+                if pdf_files:
+                    logger.info(f"[PDF_CONV:PDF_FOUND_ALT] Найдены альтернативные PDF: {pdf_files}")
+                    pdf_path = os.path.join(output_dir, pdf_files[0])
+                    log_pdf_conversion("PDF_USE_ALT", "Используется альтернативный PDF", pdf_path=pdf_path)
+                else:
+                    logger.error(f"[PDF_CONV:PDF_NOT_FOUND] PDF не найден в директории {output_dir}")
+                    try:
+                        dir_contents = os.listdir(output_dir)
+                        logger.debug(f"[PDF_CONV:DIR_CONTENTS] Содержимое директории: {dir_contents[:20]}")
+                    except Exception as e:
+                        logger.error(f"[PDF_CONV:DIR_READ_ERROR] Ошибка при чтении директории: {e}")
+                    return None
+            
+            pdf_size = os.path.getsize(pdf_path)
+            log_pdf_conversion("PDF_FOUND", "PDF найден", pdf_path=pdf_path, pdf_size=pdf_size)
+            
+            # Сохраняем в MinIO
+            log_pdf_conversion("STORAGE_SAVE", "Сохранение PDF в хранилище", 
+                              pdf_size=pdf_size, uuid=document_uuid)
+            with open(pdf_path, 'rb') as f:
+                pdf_data = f.read()
+            
+            stored_path = storage_manager.save_file(
+                pdf_data,
+                f"{document_uuid}.pdf",
+                'application/pdf'
+            )
+            
+            log_pdf_conversion("STORAGE_SUCCESS", "PDF сохранен в хранилище", stored_path=stored_path)
+            
+            # Временная директория и файлы будут удалены автоматически при выходе из блока with
+            
+            log_pdf_conversion("SUCCESS", "Конвертация завершена успешно", 
+                              stored_path=stored_path, pdf_size=pdf_size)
+            return stored_path
         
     except Exception as e:
         log_error_with_context(e, f"convert_docx_to_pdf failed, docx_path={docx_path}, uuid={document_uuid}")
