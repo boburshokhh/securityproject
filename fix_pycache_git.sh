@@ -8,14 +8,21 @@ echo "=========================================="
 cd /var/www/mygov-backend
 
 echo ""
-echo "1. Удаление __pycache__ из Git индекса..."
+echo "1. Удаление __pycache__ файлов из рабочей директории..."
+rm -rf app/services/__pycache__/
+rm -rf app/__pycache__/
+rm -rf app/routes/__pycache__/
+rm -rf app/utils/__pycache__/
+
+echo ""
+echo "2. Удаление __pycache__ из Git индекса (если отслеживаются)..."
 git rm -r --cached app/services/__pycache__/ 2>/dev/null || true
 git rm -r --cached app/__pycache__/ 2>/dev/null || true
 git rm -r --cached app/routes/__pycache__/ 2>/dev/null || true
 git rm -r --cached app/utils/__pycache__/ 2>/dev/null || true
 
 echo ""
-echo "2. Проверка .gitignore..."
+echo "3. Проверка .gitignore..."
 if ! grep -q "__pycache__" .gitignore 2>/dev/null; then
     echo "Добавление __pycache__ в .gitignore..."
     echo "" >> .gitignore
@@ -28,7 +35,7 @@ if ! grep -q "__pycache__" .gitignore 2>/dev/null; then
 fi
 
 echo ""
-echo "3. Обновление кода..."
+echo "4. Обновление кода..."
 git pull origin main
 
 echo ""
