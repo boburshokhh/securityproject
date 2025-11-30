@@ -805,11 +805,16 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             
             # Устанавливаем переменные окружения для LibreOffice
             env = os.environ.copy()
-            # Для Linux используем output_dir как HOME, чтобы LibreOffice мог писать в .config
-            # Это решает проблему с правами доступа для www-data
-            # Для Windows используем стандартный HOME, так как конфигурация в отдельной директории
+            
+            # КРИТИЧНО: Устанавливаем полный PATH для Linux
+            # LibreOffice - это shell-скрипт, который использует dirname, basename, ls, sed, grep, uname
+            # Если PATH не установлен правильно, эти команды не найдутся (код ошибки 127)
             if sys.platform != 'win32':
+                # Устанавливаем стандартный Linux PATH
+                env['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+                # Используем output_dir как HOME, чтобы LibreOffice мог писать в .config
                 env['HOME'] = output_dir
+            
             env['TMPDIR'] = output_dir
             env['TMP'] = output_dir
             env['TEMP'] = output_dir
