@@ -144,23 +144,34 @@ def download_document(doc_id):
             logger.warning(f"[API:DOWNLOAD] PDF путь не указан для документа {doc_id}, пытаемся сгенерировать заново")
             docx_path = document.get('docx_path')
             if docx_path:
-                from app.services.document import convert_docx_to_pdf
-                document_uuid = document.get('uuid', '')
-                pdf_path = convert_docx_to_pdf(docx_path, document_uuid, current_app)
-                if pdf_path:
-                    # Обновляем путь в БД
-                    from app.services.database import db_update
-                    db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [doc_id])
-                    logger.info(f"[API:DOWNLOAD] PDF успешно сгенерирован заново для документа {doc_id}")
-                else:
-                    logger.error(f"[API:DOWNLOAD] Не удалось сгенерировать PDF для документа {doc_id}")
+                try:
+                    from app.services.document import convert_docx_to_pdf
+                    document_uuid = document.get('uuid', '')
+                    logger.info(f"[API:DOWNLOAD] Начало генерации PDF из DOCX: {docx_path}, UUID: {document_uuid}")
+                    pdf_path = convert_docx_to_pdf(docx_path, document_uuid, current_app)
+                    if pdf_path:
+                        # Обновляем путь в БД
+                        from app.services.database import db_update
+                        db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [doc_id])
+                        logger.info(f"[API:DOWNLOAD] PDF успешно сгенерирован заново для документа {doc_id}: {pdf_path}")
+                    else:
+                        logger.error(f"[API:DOWNLOAD] convert_docx_to_pdf вернул None для документа {doc_id}")
+                        # Fallback: предлагаем скачать DOCX
+                        return jsonify({
+                            'success': False, 
+                            'message': 'PDF не найден и не может быть сгенерирован. Попробуйте скачать DOCX версию.',
+                            'docx_available': True,
+                            'docx_url': f"/api/documents/{doc_id}/download/docx"
+                        }), 404
+                except Exception as conv_error:
+                    log_error_with_context(conv_error, f"Ошибка при генерации PDF для документа {doc_id}")
                     # Fallback: предлагаем скачать DOCX
                     return jsonify({
                         'success': False, 
-                        'message': 'PDF не найден и не может быть сгенерирован. Попробуйте скачать DOCX версию.',
+                        'message': f'Ошибка при генерации PDF: {str(conv_error)}. Попробуйте скачать DOCX версию.',
                         'docx_available': True,
                         'docx_url': f"/api/documents/{doc_id}/download/docx"
-                    }), 404
+                    }), 500
             else:
                 logger.error(f"[API:DOWNLOAD] DOCX также не найден для документа {doc_id}")
                 return jsonify({'success': False, 'message': 'PDF не найден. DOCX также недоступен.'}), 404
