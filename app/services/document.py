@@ -3,6 +3,7 @@ MyGov Backend - Генерация документов (DOCX и PDF)
 """
 import os
 import re
+import sys
 import uuid
 import subprocess
 import shutil
@@ -772,38 +773,51 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             abs_docx_path = os.path.abspath(docx_path)
             log_pdf_conversion("ABS_PATH", "Абсолютный путь к DOCX", abs_path=abs_docx_path)
             
+            # Формируем команду конвертации
+            # Используем минимальный набор флагов для совместимости (как в dmed)
             cmd = [
                 libreoffice_cmd,
                 '--headless',
-                '--nodefault',
-                '--nolockcheck',
-                '--nologo',
-                '--norestore',
-                '--invisible',
                 '--convert-to', 'pdf',
                 '--outdir', output_dir,
                 abs_docx_path
             ]
             
+            # Для Windows добавляем специальную директорию конфигурации (как в dmed)
+            temp_config_dir = None
+            if sys.platform == 'win32':
+                temp_config_dir = tempfile.mkdtemp(prefix='LibreOffice_Config_')
+                config_path = os.path.abspath(temp_config_dir).replace('\\', '/')
+                if not config_path.startswith('/'):
+                    config_path = '/' + config_path
+                # Используем правильный формат URI для Windows
+                cmd.extend(['-env:UserInstallation=file:///' + config_path.lstrip('/')])
+                log_pdf_conversion("WINDOWS_CONFIG", "Используется отдельная директория конфигурации для Windows", 
+                                  config_dir=temp_config_dir)
+            
             log_pdf_conversion("CMD", "Команда конвертации", cmd=' '.join(cmd))
             
             # Устанавливаем переменные окружения для LibreOffice
             env = os.environ.copy()
-            # Используем output_dir как HOME, чтобы LibreOffice мог писать в .config
+            # Для Linux используем output_dir как HOME, чтобы LibreOffice мог писать в .config
             # Это решает проблему с правами доступа для www-data
-            env['HOME'] = output_dir
+            # Для Windows используем стандартный HOME, так как конфигурация в отдельной директории
+            if sys.platform != 'win32':
+                env['HOME'] = output_dir
             env['TMPDIR'] = output_dir
             env['TMP'] = output_dir
             env['TEMP'] = output_dir
             
             log_pdf_conversion("EXEC_START", "Запуск LibreOffice", 
-                              env_home=env['HOME'], env_tmpdir=env['TMPDIR'])
+                              env_home=env.get('HOME', 'default'), env_tmpdir=env['TMPDIR'],
+                              platform=sys.platform)
             
+            # Увеличиваем таймаут до 180 секунд (как в dmed) для больших документов
             result = subprocess.run(
                 cmd, 
                 capture_output=True, 
                 text=True, 
-                timeout=120,
+                timeout=180,
                 env=env,
                 cwd=output_dir
             )
@@ -818,13 +832,53 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             if result.stderr:
                 logger.debug(f"[PDF_CONV:STDERR] {result.stderr[:500]}")
             
+            # Улучшенная обработка ошибок (как в dmed)
             if result.returncode != 0:
                 logger.error(f"[PDF_CONV:EXEC_FAIL] LibreOffice вернул код {result.returncode}")
                 if result.stderr:
                     logger.error(f"[PDF_CONV:STDERR_FULL] {result.stderr}")
+                    stderr_lower = result.stderr.lower()
+                    # Проверяем конкретные ошибки
+                    if 'bootstrap.ini' in stderr_lower and ('повреждён' in stderr_lower or 'damaged' in stderr_lower or 'corrupted' in stderr_lower):
+                        logger.error("[PDF_CONV:BOOTSTRAP_ERROR] Файл конфигурации LibreOffice повреждён")
+                    elif 'document is empty' in stderr_lower or 'source file could not be loaded' in stderr_lower:
+                        logger.error(f"[PDF_CONV:LOAD_ERROR] LibreOffice не может загрузить файл: {abs_docx_path}")
+                        # Дополнительная диагностика
+                        try:
+                            import zipfile
+                            with zipfile.ZipFile(abs_docx_path, 'r') as zf:
+                                file_list = zf.namelist()
+                                logger.debug(f"[PDF_CONV:ZIP_CONTENTS] Содержимое DOCX (первые 10 файлов): {file_list[:10]}")
+                                required_files = ['[Content_Types].xml', 'word/document.xml']
+                                missing = [f for f in required_files if f not in file_list]
+                                if missing:
+                                    logger.error(f"[PDF_CONV:MISSING_FILES] В DOCX отсутствуют обязательные файлы: {missing}")
+                        except Exception as zip_error:
+                            logger.error(f"[PDF_CONV:ZIP_ERROR] Не удалось прочитать DOCX как ZIP: {zip_error}")
                 if result.stdout:
                     logger.error(f"[PDF_CONV:STDOUT_FULL] {result.stdout}")
+                
+                # Очистка временной директории конфигурации для Windows
+                if temp_config_dir and os.path.exists(temp_config_dir):
+                    try:
+                        shutil.rmtree(temp_config_dir)
+                    except:
+                        pass
+                
                 return None
+            
+            # Игнорируем некоторые предупреждения (как в dmed)
+            if result.stderr:
+                stderr_lower = result.stderr.lower()
+                if 'javaldx: could not find a java runtime environment' in stderr_lower:
+                    logger.debug("[PDF_CONV:JAVA_WARNING] Предупреждение о Java игнорируется (не критично)")
+            
+            # Очистка временной директории конфигурации для Windows
+            if temp_config_dir and os.path.exists(temp_config_dir):
+                try:
+                    shutil.rmtree(temp_config_dir)
+                except:
+                    pass
             
             # Находим созданный PDF
             # LibreOffice создает PDF с тем же именем, но расширением .pdf
