@@ -18,8 +18,13 @@ from app.config import FRONTEND_URL, UPLOAD_FOLDER, TYPE_DOC
 from app.services.qr_code import generate_simple_qr, save_qr_to_file
 from app.services.storage import storage_manager
 from app.services.database import get_next_mygov_doc_number, db_insert, db_update
+from app.utils.logger import (
+    logger, log_document_generation, log_pdf_conversion, 
+    log_error_with_context, log_function_call
+)
 
 
+@log_function_call
 def generate_document(document_data, app=None):
     """
     Генерирует документ MyGov (DOCX и PDF)
@@ -33,21 +38,22 @@ def generate_document(document_data, app=None):
     """
     document_id = None
     try:
-        print(f"[DEBUG] generate_document: Начало генерации документа")
-        print(f"[DEBUG] Данные документа: {list(document_data.keys())}")
+        log_document_generation("START", "Начало генерации документа", 
+                               keys=list(document_data.keys()),
+                               created_by=document_data.get('created_by'))
         
         # Генерируем уникальные идентификаторы
         document_uuid = str(uuid.uuid4())
         pin_code = generate_pin_code()
-        print(f"[DEBUG] Сгенерирован UUID: {document_uuid}, PIN: {pin_code}")
+        log_document_generation("UUID_GEN", "Сгенерированы идентификаторы", 
+                               uuid=document_uuid, pin_code=pin_code)
         
         try:
             mygov_doc_number = get_next_mygov_doc_number()
-            print(f"[DEBUG] Получен номер документа: {mygov_doc_number}")
+            log_document_generation("DOC_NUMBER", "Получен номер документа", 
+                                   doc_number=mygov_doc_number)
         except Exception as e:
-            print(f"ERROR get_next_mygov_doc_number: {e}")
-            import traceback
-            print(traceback.format_exc())
+            log_error_with_context(e, f"get_next_mygov_doc_number failed")
             raise
         
         # Стандартный doc_number для совместимости с БД
@@ -80,63 +86,72 @@ def generate_document(document_data, app=None):
             'created_by': document_data.get('created_by')
         }
         
-        print(f"[DEBUG] Вставка в БД...")
+        log_document_generation("DB_INSERT", "Вставка документа в БД", 
+                               patient=document_data.get('patient_name'))
         # Вставляем в БД
         created_document = db_insert('documents', db_data)
         if not created_document:
-            print("ERROR: Не удалось создать документ в БД")
+            logger.error("[DOC_GEN:DB_INSERT] Не удалось создать документ в БД")
             return None
         
         document_id = created_document['id']
-        print(f"[DEBUG] Документ создан в БД с ID: {document_id}")
+        log_document_generation("DB_SUCCESS", "Документ создан в БД", 
+                               document_id=document_id, doc_number=mygov_doc_number)
         
         # Генерируем DOCX
-        print(f"[DEBUG] Генерация DOCX...")
+        log_document_generation("DOCX_START", "Начало генерации DOCX", document_id=document_id)
         docx_path = fill_docx_template(created_document, app)
         if not docx_path:
-            print("ERROR: Не удалось создать DOCX")
+            logger.error(f"[DOC_GEN:DOCX_FAIL] Не удалось создать DOCX для документа {document_id}")
             # Удаляем документ из БД если не удалось создать DOCX
             if document_id:
                 try:
+                    from app.services.database import db_query
                     db_query("DELETE FROM documents WHERE id = %s", [document_id])
-                except:
-                    pass
+                    logger.info(f"[DOC_GEN:CLEANUP] Документ {document_id} удален из БД")
+                except Exception as cleanup_error:
+                    logger.error(f"[DOC_GEN:CLEANUP] Ошибка при удалении документа: {cleanup_error}")
             return None
         
-        print(f"[DEBUG] DOCX создан: {docx_path}")
+        log_document_generation("DOCX_SUCCESS", "DOCX создан успешно", 
+                               document_id=document_id, docx_path=docx_path)
         
         # Обновляем путь к DOCX в БД
         db_update('documents', {'docx_path': docx_path}, 'id = %s', [document_id])
+        log_document_generation("DOCX_UPDATE", "Путь DOCX обновлен в БД", document_id=document_id)
         
         # Конвертируем в PDF
-        print(f"[DEBUG] Конвертация в PDF...")
+        log_document_generation("PDF_START", "Начало конвертации в PDF", 
+                               document_id=document_id, docx_path=docx_path)
         pdf_path = convert_docx_to_pdf(docx_path, document_uuid, app)
         if pdf_path:
-            print(f"[DEBUG] PDF создан: {pdf_path}")
+            log_document_generation("PDF_SUCCESS", "PDF создан успешно", 
+                                   document_id=document_id, pdf_path=pdf_path)
             db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [document_id])
+            log_document_generation("PDF_UPDATE", "Путь PDF обновлен в БД", document_id=document_id)
         else:
-            print("WARNING: PDF не был создан, но документ сохранен")
+            logger.warning(f"[DOC_GEN:PDF_WARNING] PDF не был создан для документа {document_id}, но документ сохранен")
         
         # Возвращаем результат
         created_document['docx_path'] = docx_path
         created_document['pdf_path'] = pdf_path
         
-        print(f"[DEBUG] generate_document: Успешно завершено")
+        log_document_generation("SUCCESS", "Генерация документа завершена успешно", 
+                               document_id=document_id, doc_number=mygov_doc_number,
+                               has_docx=bool(docx_path), has_pdf=bool(pdf_path))
         return created_document
         
     except Exception as e:
-        print(f"ERROR generate_document: {e}")
-        import traceback
-        error_trace = traceback.format_exc()
-        print(error_trace)
+        log_error_with_context(e, f"generate_document failed, document_id={document_id}")
         
         # Удаляем документ из БД если была ошибка после создания
         if document_id:
             try:
-                print(f"[DEBUG] Удаление документа {document_id} из БД из-за ошибки")
+                from app.services.database import db_query
+                logger.info(f"[DOC_GEN:CLEANUP] Удаление документа {document_id} из БД из-за ошибки")
                 db_query("DELETE FROM documents WHERE id = %s", [document_id])
             except Exception as cleanup_error:
-                print(f"ERROR при очистке: {cleanup_error}")
+                logger.error(f"[DOC_GEN:CLEANUP] Ошибка при очистке: {cleanup_error}")
         
         return None
 
@@ -177,17 +192,17 @@ def fill_docx_template(document_data, app=None):
                 current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 template_path = os.path.join(current_dir, template_folder, 'template_mygov.docx')
         
-        print(f"[DEBUG] fill_docx_template: Ищем шаблон по пути: {template_path}")
+        logger.debug(f"[DOCX_TEMPLATE] Поиск шаблона: {template_path}")
         
         if not os.path.exists(template_path):
-            print(f"ERROR: Шаблон не найден: {template_path}")
-            print(f"[DEBUG] Текущая рабочая директория: {os.getcwd()}")
-            print(f"[DEBUG] Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
+            logger.error(f"[DOCX_TEMPLATE:NOT_FOUND] Шаблон не найден: {template_path}")
+            logger.debug(f"[DOCX_TEMPLATE] Текущая рабочая директория: {os.getcwd()}")
+            logger.debug(f"[DOCX_TEMPLATE] Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
             if app:
-                print(f"[DEBUG] app.root_path: {app.root_path}")
+                logger.debug(f"[DOCX_TEMPLATE] app.root_path: {app.root_path}")
             return None
         
-        print(f"[DEBUG] Шаблон найден: {template_path}")
+        logger.debug(f"[DOCX_TEMPLATE:FOUND] Шаблон найден: {template_path}")
         
         doc = Document(template_path)
         
@@ -227,9 +242,7 @@ def fill_docx_template(document_data, app=None):
         return stored_path
         
     except Exception as e:
-        print(f"ERROR fill_docx_template: {e}")
-        import traceback
-        print(traceback.format_exc())
+        log_error_with_context(e, "fill_docx_template failed")
         return None
 
 
@@ -256,7 +269,7 @@ def prepare_replacements(document_data):
             return dt.strftime('%d.%m.%Y')
         except Exception as e:
             # Если не удалось распарсить, возвращаем исходную строку
-            print(f"WARNING: Не удалось отформатировать дату '{date_str}': {e}")
+            logger.warning(f"[DATE_FORMAT] Не удалось отформатировать дату '{date_str}': {e}")
             return str(date_str) if date_str else ''
             
     # Вычисляем количество дней
@@ -536,9 +549,7 @@ def add_qr_code(doc, document_data, app=None):
             os.remove(qr_temp_path)
             
     except Exception as e:
-        print(f"ERROR add_qr_code: {e}")
-        import traceback
-        print(traceback.format_exc())
+        log_error_with_context(e, "add_qr_code failed")
 
 
 def add_pin_qr_table(doc, para, pin_code, qr_temp_path):
@@ -597,6 +608,7 @@ def add_pin_qr_to_end(doc, pin_code, qr_temp_path):
     qr_run.add_picture(qr_temp_path, width=Inches(0.8))
 
 
+@log_function_call
 def convert_docx_to_pdf(docx_path, document_uuid, app=None):
     """
     Конвертирует DOCX в PDF с помощью LibreOffice
@@ -611,48 +623,51 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
     """
     temp_docx = None
     try:
-        print(f"[DEBUG] convert_docx_to_pdf: Начало конвертации, docx_path={docx_path}")
+        log_pdf_conversion("START", "Начало конвертации DOCX в PDF", 
+                          docx_path=docx_path, uuid=document_uuid)
         
         # Получаем DOCX из хранилища
         if docx_path.startswith('minio://'):
-            print(f"[DEBUG] Получение DOCX из MinIO: {docx_path}")
+            log_pdf_conversion("MINIO_GET", "Получение DOCX из MinIO", minio_path=docx_path)
             docx_data = storage_manager.get_file(docx_path)
             if not docx_data:
-                print("ERROR: Не удалось получить DOCX из MinIO")
+                logger.error(f"[PDF_CONV:MINIO_FAIL] Не удалось получить DOCX из MinIO: {docx_path}")
                 return None
             
             # Сохраняем временно в /tmp для лучшей совместимости
             temp_dir = os.environ.get('TMPDIR', '/tmp')
             os.makedirs(temp_dir, exist_ok=True)
             temp_docx = os.path.join(temp_dir, f"temp_{document_uuid}.docx")
-            print(f"[DEBUG] Сохранение временного DOCX: {temp_docx}")
+            log_pdf_conversion("TEMP_SAVE", "Сохранение временного DOCX", temp_path=temp_docx)
             with open(temp_docx, 'wb') as f:
                 f.write(docx_data)
             docx_path = temp_docx
         
         # Проверяем существование файла
         if not os.path.exists(docx_path):
-            print(f"ERROR: DOCX файл не найден: {docx_path}")
+            logger.error(f"[PDF_CONV:FILE_NOT_FOUND] DOCX файл не найден: {docx_path}")
             return None
         
-        print(f"[DEBUG] DOCX файл существует: {docx_path}, размер: {os.path.getsize(docx_path)} bytes")
+        file_size = os.path.getsize(docx_path)
+        log_pdf_conversion("FILE_CHECK", "DOCX файл проверен", 
+                          docx_path=docx_path, file_size=file_size)
         
         # Конвертируем с помощью LibreOffice
         libreoffice_cmd = find_libreoffice()
         if not libreoffice_cmd:
-            print("WARNING: LibreOffice не найден, PDF не будет создан")
+            logger.warning("[PDF_CONV:LIBREOFFICE_NOT_FOUND] LibreOffice не найден, PDF не будет создан")
             return None
         
-        print(f"[DEBUG] Используется LibreOffice: {libreoffice_cmd}")
+        log_pdf_conversion("LIBREOFFICE_FOUND", "LibreOffice найден", cmd=libreoffice_cmd)
         
         # Используем /tmp для выходной директории (более надежно для www-data)
         output_dir = os.environ.get('TMPDIR', '/tmp')
         os.makedirs(output_dir, exist_ok=True)
-        print(f"[DEBUG] Выходная директория: {output_dir}")
+        log_pdf_conversion("OUTPUT_DIR", "Выходная директория", output_dir=output_dir)
         
         # Абсолютный путь к входному файлу
         abs_docx_path = os.path.abspath(docx_path)
-        print(f"[DEBUG] Абсолютный путь к DOCX: {abs_docx_path}")
+        log_pdf_conversion("ABS_PATH", "Абсолютный путь к DOCX", abs_path=abs_docx_path)
         
         cmd = [
             libreoffice_cmd,
@@ -667,7 +682,7 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             abs_docx_path
         ]
         
-        print(f"[DEBUG] Команда конвертации: {' '.join(cmd)}")
+        log_pdf_conversion("CMD", "Команда конвертации", cmd=' '.join(cmd))
         
         # Устанавливаем переменные окружения для LibreOffice
         env = os.environ.copy()
@@ -675,6 +690,9 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
         env['TMPDIR'] = output_dir
         env['TMP'] = output_dir
         env['TEMP'] = output_dir
+        
+        log_pdf_conversion("EXEC_START", "Запуск LibreOffice", 
+                          env_home=env['HOME'], env_tmpdir=env['TMPDIR'])
         
         result = subprocess.run(
             cmd, 
@@ -685,16 +703,22 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             cwd=output_dir
         )
         
-        print(f"[DEBUG] Код возврата LibreOffice: {result.returncode}")
+        log_pdf_conversion("EXEC_RESULT", "LibreOffice завершен", 
+                          returncode=result.returncode,
+                          stdout_len=len(result.stdout) if result.stdout else 0,
+                          stderr_len=len(result.stderr) if result.stderr else 0)
+        
         if result.stdout:
-            print(f"[DEBUG] Stdout: {result.stdout}")
+            logger.debug(f"[PDF_CONV:STDOUT] {result.stdout[:500]}")
         if result.stderr:
-            print(f"[DEBUG] Stderr: {result.stderr}")
+            logger.debug(f"[PDF_CONV:STDERR] {result.stderr[:500]}")
         
         if result.returncode != 0:
-            print(f"ERROR LibreOffice (код {result.returncode}): {result.stderr}")
+            logger.error(f"[PDF_CONV:EXEC_FAIL] LibreOffice вернул код {result.returncode}")
+            if result.stderr:
+                logger.error(f"[PDF_CONV:STDERR_FULL] {result.stderr}")
             if result.stdout:
-                print(f"Stdout: {result.stdout}")
+                logger.error(f"[PDF_CONV:STDOUT_FULL] {result.stdout}")
             return None
         
         # Находим созданный PDF
@@ -703,28 +727,31 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
         pdf_filename = docx_basename + '.pdf'
         pdf_path = os.path.join(output_dir, pdf_filename)
         
-        print(f"[DEBUG] Ожидаемый PDF: {pdf_path}")
+        log_pdf_conversion("PDF_SEARCH", "Поиск созданного PDF", expected_path=pdf_path)
         
         if not os.path.exists(pdf_path):
-            print(f"ERROR: PDF не найден: {pdf_path}")
+            logger.warning(f"[PDF_CONV:PDF_NOT_FOUND] Ожидаемый PDF не найден: {pdf_path}")
             # Пробуем найти любой PDF в директории
             pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
             if pdf_files:
-                print(f"[DEBUG] Найдены PDF файлы в директории: {pdf_files}")
+                logger.info(f"[PDF_CONV:PDF_FOUND_ALT] Найдены альтернативные PDF: {pdf_files}")
                 pdf_path = os.path.join(output_dir, pdf_files[0])
-                print(f"[DEBUG] Используем: {pdf_path}")
+                log_pdf_conversion("PDF_USE_ALT", "Используется альтернативный PDF", pdf_path=pdf_path)
             else:
-                print(f"[DEBUG] Содержимое директории {output_dir}:")
+                logger.error(f"[PDF_CONV:PDF_NOT_FOUND] PDF не найден в директории {output_dir}")
                 try:
-                    for item in os.listdir(output_dir):
-                        print(f"  - {item}")
+                    dir_contents = os.listdir(output_dir)
+                    logger.debug(f"[PDF_CONV:DIR_CONTENTS] Содержимое директории: {dir_contents[:20]}")
                 except Exception as e:
-                    print(f"  Ошибка при чтении директории: {e}")
+                    logger.error(f"[PDF_CONV:DIR_READ_ERROR] Ошибка при чтении директории: {e}")
                 return None
         
-        print(f"[DEBUG] PDF найден: {pdf_path}, размер: {os.path.getsize(pdf_path)} bytes")
+        pdf_size = os.path.getsize(pdf_path)
+        log_pdf_conversion("PDF_FOUND", "PDF найден", pdf_path=pdf_path, pdf_size=pdf_size)
         
         # Сохраняем в MinIO
+        log_pdf_conversion("STORAGE_SAVE", "Сохранение PDF в хранилище", 
+                          pdf_size=pdf_size, uuid=document_uuid)
         with open(pdf_path, 'rb') as f:
             pdf_data = f.read()
         
@@ -734,22 +761,26 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
             'application/pdf'
         )
         
+        log_pdf_conversion("STORAGE_SUCCESS", "PDF сохранен в хранилище", stored_path=stored_path)
+        
         # Удаляем временные файлы
         if storage_manager.use_minio:
             try:
                 if os.path.exists(pdf_path):
                     os.remove(pdf_path)
-                if 'temp_' in docx_path and os.path.exists(docx_path):
-                    os.remove(docx_path)
-            except:
-                pass
+                    logger.debug(f"[PDF_CONV:CLEANUP] Временный PDF удален: {pdf_path}")
+                if temp_docx and os.path.exists(temp_docx):
+                    os.remove(temp_docx)
+                    logger.debug(f"[PDF_CONV:CLEANUP] Временный DOCX удален: {temp_docx}")
+            except Exception as cleanup_error:
+                logger.warning(f"[PDF_CONV:CLEANUP] Ошибка при удалении временных файлов: {cleanup_error}")
         
+        log_pdf_conversion("SUCCESS", "Конвертация завершена успешно", 
+                          stored_path=stored_path, pdf_size=pdf_size)
         return stored_path
         
     except Exception as e:
-        print(f"ERROR convert_docx_to_pdf: {e}")
-        import traceback
-        print(traceback.format_exc())
+        log_error_with_context(e, f"convert_docx_to_pdf failed, docx_path={docx_path}, uuid={document_uuid}")
         return None
 
 
@@ -773,20 +804,20 @@ def find_libreoffice():
     # Сначала проверяем стандартные пути
     for path in paths:
         if os.path.exists(path) and os.access(path, os.X_OK):
-            print(f"[DEBUG] find_libreoffice: Найден в стандартном пути: {path}")
+            logger.debug(f"[LIBREOFFICE:FOUND] Найден в стандартном пути: {path}")
             return path
     
     # Пробуем найти в PATH
     libreoffice_path = shutil.which('libreoffice')
     if libreoffice_path:
-        print(f"[DEBUG] find_libreoffice: Найден через PATH: {libreoffice_path}")
+        logger.debug(f"[LIBREOFFICE:FOUND] Найден через PATH: {libreoffice_path}")
         return libreoffice_path
     
     soffice_path = shutil.which('soffice')
     if soffice_path:
-        print(f"[DEBUG] find_libreoffice: Найден soffice через PATH: {soffice_path}")
+        logger.debug(f"[LIBREOFFICE:FOUND] Найден soffice через PATH: {soffice_path}")
         return soffice_path
     
-    print("[DEBUG] find_libreoffice: LibreOffice не найден")
+    logger.warning("[LIBREOFFICE:NOT_FOUND] LibreOffice не найден")
     return None
 

@@ -9,6 +9,7 @@ from app.services.database import db_query, db_select
 from app.services.storage import storage_manager
 from app.services.document import generate_document
 from app.routes.auth import require_auth
+from app.utils.logger import logger, log_error_with_context
 
 documents_bp = Blueprint('documents', __name__)
 
@@ -40,7 +41,7 @@ def list_documents():
         return jsonify(documents)
         
     except Exception as e:
-        print(f"ERROR list_documents: {e}")
+        log_error_with_context(e, "list_documents failed")
         return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
 
 
@@ -52,10 +53,15 @@ def create_document():
         data = request.get_json()
         
         if not data:
+            logger.warning("[API:CREATE_DOC] Данные не предоставлены")
             return jsonify({'success': False, 'message': 'Данные не предоставлены'}), 400
         
         # Добавляем ID создателя
-        data['created_by'] = request.current_user.get('user_id')
+        user_id = request.current_user.get('user_id')
+        data['created_by'] = user_id
+        
+        logger.info(f"[API:CREATE_DOC] Запрос на создание документа от пользователя {user_id}")
+        logger.debug(f"[API:CREATE_DOC] Данные: {list(data.keys())}")
         
         # Генерируем документ
         created_document = generate_document(data, current_app)
@@ -74,10 +80,7 @@ def create_document():
         })
         
     except Exception as e:
-        print(f"ERROR create_document: {e}")
-        import traceback
-        error_trace = traceback.format_exc()
-        print(error_trace)
+        log_error_with_context(e, f"create_document failed, user_id={request.current_user.get('user_id')}")
         
         # Более детальное сообщение об ошибке для отладки
         error_message = str(e)
