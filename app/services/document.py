@@ -807,7 +807,9 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
         
         # Устанавливаем переменные окружения для LibreOffice
         env = os.environ.copy()
-        env['HOME'] = os.environ.get('HOME', '/var/www')
+        # Используем output_dir как HOME, чтобы LibreOffice мог писать в .config
+        # Это решает проблему с правами доступа для www-data
+        env['HOME'] = output_dir
         env['TMPDIR'] = output_dir
         env['TMP'] = output_dir
         env['TEMP'] = output_dir
