@@ -33,13 +33,21 @@ def create_app():
     def log_request_info():
         from flask import request
         from app.utils.logger import logger
-        logger.debug(f"[REQUEST] {request.method} {request.path}")
+        logger.info(f"[REQUEST] {request.method} {request.path}")
+        logger.info(f"[REQUEST] Headers: {dict(request.headers)}")
+        logger.info(f"[REQUEST] Remote: {request.remote_addr}")
+        if request.is_json:
+            logger.debug(f"[REQUEST] JSON Data: {request.get_json()}")
+        elif request.form:
+            logger.debug(f"[REQUEST] Form Data: {dict(request.form)}")
     
     @app.after_request
     def log_response_info(response):
         from flask import request
         from app.utils.logger import logger
-        logger.debug(f"[RESPONSE] {response.status_code} {request.path}")
+        logger.info(f"[RESPONSE] {response.status_code} {request.method} {request.path}")
+        if response.status_code >= 400:
+            logger.warning(f"[RESPONSE] Error response: {response.get_data(as_text=True)[:500]}")
         return response
     
     # Настройка CORS

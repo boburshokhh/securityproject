@@ -138,9 +138,32 @@ def download_document(doc_id):
         logger.debug(f"[API:DOWNLOAD] Документ найден: doc_number={document.get('mygov_doc_number')}")
         
         pdf_path = document.get('pdf_path')
+        
+        # Если PDF не найден, пытаемся сгенерировать его заново из DOCX
         if not pdf_path:
-            logger.warning(f"[API:DOWNLOAD] PDF путь не указан для документа {doc_id}")
-            return jsonify({'success': False, 'message': 'PDF не найден'}), 404
+            logger.warning(f"[API:DOWNLOAD] PDF путь не указан для документа {doc_id}, пытаемся сгенерировать заново")
+            docx_path = document.get('docx_path')
+            if docx_path:
+                from app.services.document import convert_docx_to_pdf
+                document_uuid = document.get('uuid', '')
+                pdf_path = convert_docx_to_pdf(docx_path, document_uuid, current_app)
+                if pdf_path:
+                    # Обновляем путь в БД
+                    from app.services.database import db_update
+                    db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [doc_id])
+                    logger.info(f"[API:DOWNLOAD] PDF успешно сгенерирован заново для документа {doc_id}")
+                else:
+                    logger.error(f"[API:DOWNLOAD] Не удалось сгенерировать PDF для документа {doc_id}")
+                    # Fallback: предлагаем скачать DOCX
+                    return jsonify({
+                        'success': False, 
+                        'message': 'PDF не найден и не может быть сгенерирован. Попробуйте скачать DOCX версию.',
+                        'docx_available': True,
+                        'docx_url': f"/api/documents/{doc_id}/download/docx"
+                    }), 404
+            else:
+                logger.error(f"[API:DOWNLOAD] DOCX также не найден для документа {doc_id}")
+                return jsonify({'success': False, 'message': 'PDF не найден. DOCX также недоступен.'}), 404
         
         logger.debug(f"[API:DOWNLOAD] PDF путь: {pdf_path}")
         
@@ -150,7 +173,25 @@ def download_document(doc_id):
         
         if not pdf_data:
             logger.error(f"[API:DOWNLOAD] Файл не получен из хранилища: {pdf_path}")
-            return jsonify({'success': False, 'message': 'Файл не найден'}), 404
+            # Пробуем еще раз сгенерировать
+            docx_path = document.get('docx_path')
+            if docx_path:
+                logger.info(f"[API:DOWNLOAD] Пытаемся регенерировать PDF из DOCX")
+                from app.services.document import convert_docx_to_pdf
+                document_uuid = document.get('uuid', '')
+                new_pdf_path = convert_docx_to_pdf(docx_path, document_uuid, current_app)
+                if new_pdf_path:
+                    from app.services.database import db_update
+                    db_update('documents', {'pdf_path': new_pdf_path}, 'id = %s', [doc_id])
+                    pdf_data = storage_manager.get_file(new_pdf_path)
+                    if pdf_data:
+                        pdf_path = new_pdf_path
+                    else:
+                        return jsonify({'success': False, 'message': 'Файл не найден в хранилище'}), 404
+                else:
+                    return jsonify({'success': False, 'message': 'Не удалось сгенерировать PDF'}), 500
+            else:
+                return jsonify({'success': False, 'message': 'Файл не найден'}), 404
         
         logger.debug(f"[API:DOWNLOAD] Файл получен, размер: {len(pdf_data)} bytes")
         
