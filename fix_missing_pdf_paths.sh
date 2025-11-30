@@ -47,13 +47,44 @@ else:
         try:
             # Проверяем, что docx_path в правильном формате
             if not docx_path.startswith('minio://') and not os.path.exists(docx_path):
-                # Старый формат - пробуем получить из MinIO
+                # Старый формат - пробуем получить из MinIO по UUID
+                possible_paths = []
+                if doc_uuid:
+                    possible_paths.append(f"minio://dmed/{doc_uuid}.docx")
+                
                 filename = os.path.basename(docx_path) if '/' in docx_path else docx_path
-                minio_path = f"minio://dmed/{filename}"
-                print(f"  ⚠ Старый формат пути, пробуем MinIO: {minio_path}")
-                # Обновляем путь в БД
-                db_update('documents', {'docx_path': minio_path}, 'id = %s', [doc_id])
-                docx_path = minio_path
+                if filename and filename.endswith('.docx'):
+                    possible_paths.append(f"minio://dmed/{filename}")
+                
+                print(f"  ⚠ Старый формат пути, пробуем MinIO: {possible_paths}")
+                
+                # Пробуем получить файл из MinIO
+                docx_data = None
+                new_docx_path = None
+                for minio_path in possible_paths:
+                    docx_data = storage_manager.get_file(minio_path)
+                    if docx_data:
+                        new_docx_path = minio_path
+                        print(f"  ✓ DOCX найден в MinIO: {minio_path}")
+                        break
+                
+                if new_docx_path:
+                    # Обновляем путь в БД
+                    db_update('documents', {'docx_path': new_docx_path}, 'id = %s', [doc_id])
+                    docx_path = new_docx_path
+                else:
+                    print(f"  ✗ DOCX не найден в MinIO по путям: {possible_paths}")
+                    print(f"  ⚠ Пропускаем документ {doc_id}")
+                    continue
+            elif not docx_path.startswith('minio://') and os.path.exists(docx_path):
+                # Локальный файл существует, но нужно проверить, есть ли он в MinIO
+                if doc_uuid:
+                    minio_path = f"minio://dmed/{doc_uuid}.docx"
+                    docx_data = storage_manager.get_file(minio_path)
+                    if docx_data:
+                        print(f"  ⚠ Локальный файл существует, но также найден в MinIO. Обновляем путь: {minio_path}")
+                        db_update('documents', {'docx_path': minio_path}, 'id = %s', [doc_id])
+                        docx_path = minio_path
             
             pdf_path = convert_docx_to_pdf(docx_path, doc_uuid, app)
             

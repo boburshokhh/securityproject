@@ -722,25 +722,46 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
         elif not os.path.exists(docx_path):
             # Старый формат пути (локальный файл) - пробуем получить из MinIO по UUID
             logger.warning(f"[PDF_CONV:OLD_FORMAT] Обнаружен старый формат пути, пробуем получить из MinIO: {docx_path}")
-            # Извлекаем UUID из имени файла
+            
+            # Пробуем несколько вариантов получения файла из MinIO
+            possible_paths = []
+            
+            # Вариант 1: Используем UUID напрямую
+            if document_uuid:
+                possible_paths.append(f"minio://dmed/{document_uuid}.docx")
+            
+            # Вариант 2: Извлекаем имя файла из старого пути
             filename = os.path.basename(docx_path)
-            uuid_from_filename = filename.replace('.docx', '')
-            minio_path = f"minio://dmed/{filename}"
-            log_pdf_conversion("MINIO_GET_OLD", "Попытка получить DOCX из MinIO по старому пути", minio_path=minio_path)
-            docx_data = storage_manager.get_file(minio_path)
+            if filename and filename.endswith('.docx'):
+                possible_paths.append(f"minio://dmed/{filename}")
+                # Вариант 3: Без расширения
+                name_without_ext = filename.replace('.docx', '')
+                if name_without_ext:
+                    possible_paths.append(f"minio://dmed/{name_without_ext}.docx")
+            
+            docx_data = None
+            used_path = None
+            for minio_path in possible_paths:
+                log_pdf_conversion("MINIO_GET_OLD", "Попытка получить DOCX из MinIO", minio_path=minio_path)
+                docx_data = storage_manager.get_file(minio_path)
+                if docx_data:
+                    used_path = minio_path
+                    logger.info(f"[PDF_CONV:MINIO_GET_OLD_SUCCESS] DOCX получен из MinIO: {minio_path}")
+                    break
+            
             if docx_data:
                 # Сохраняем во временный файл
                 import tempfile
                 temp_dir = os.environ.get('TMPDIR', '/tmp')
                 os.makedirs(temp_dir, exist_ok=True)
-                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{uuid_from_filename}_', dir=temp_dir)
+                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=temp_dir)
                 with os.fdopen(temp_fd, 'wb') as f:
                     f.write(docx_data)
                 os.chmod(temp_docx, 0o666)
                 docx_path = temp_docx
-                log_pdf_conversion("TEMP_SAVE_OLD", "Сохранение DOCX из старого формата", temp_path=temp_docx)
+                log_pdf_conversion("TEMP_SAVE_OLD", "Сохранение DOCX из старого формата", temp_path=temp_docx, minio_path=used_path)
             else:
-                logger.error(f"[PDF_CONV:OLD_FORMAT_FAIL] Не удалось получить DOCX из MinIO для старого формата: {minio_path}")
+                logger.error(f"[PDF_CONV:OLD_FORMAT_FAIL] Не удалось получить DOCX из MinIO. Пробовали пути: {possible_paths}")
                 return None
         
         # Проверяем существование файла
