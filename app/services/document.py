@@ -179,28 +179,47 @@ def fill_docx_template(document_data, app=None):
             template_folder = app.config.get('TEMPLATE_FOLDER', 'templates')
         
         # Получаем абсолютный путь к шаблону
+        # app.root_path указывает на директорию приложения (app/), нужно подняться на уровень выше
         if app:
-            # Используем корневую директорию приложения
-            app_root = app.root_path
-            template_path = os.path.join(app_root, template_folder, 'template_mygov.docx')
+            # app.root_path = /var/www/mygov-backend/app
+            # Нужно получить /var/www/mygov-backend
+            project_root = os.path.dirname(app.root_path)
+            template_path = os.path.join(project_root, template_folder, 'template_mygov.docx')
+            logger.debug(f"[DOCX_TEMPLATE] app.root_path: {app.root_path}, project_root: {project_root}")
         else:
             # Используем относительный путь от текущей директории
             template_path = os.path.join(template_folder, 'template_mygov.docx')
             # Пробуем абсолютный путь
             if not os.path.exists(template_path):
-                # Пробуем от корня проекта
+                # Пробуем от корня проекта (3 уровня вверх от app/services/document.py)
                 current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 template_path = os.path.join(current_dir, template_folder, 'template_mygov.docx')
         
         logger.debug(f"[DOCX_TEMPLATE] Поиск шаблона: {template_path}")
         
+        # Дополнительные попытки найти шаблон
         if not os.path.exists(template_path):
-            logger.error(f"[DOCX_TEMPLATE:NOT_FOUND] Шаблон не найден: {template_path}")
-            logger.debug(f"[DOCX_TEMPLATE] Текущая рабочая директория: {os.getcwd()}")
-            logger.debug(f"[DOCX_TEMPLATE] Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
-            if app:
-                logger.debug(f"[DOCX_TEMPLATE] app.root_path: {app.root_path}")
-            return None
+            # Попробуем стандартные пути
+            alternative_paths = [
+                os.path.join('/var/www/mygov-backend', template_folder, 'template_mygov.docx'),
+                os.path.join('/var/www/mygov-backend', 'templates', 'template_mygov.docx'),
+                os.path.join(os.getcwd(), template_folder, 'template_mygov.docx'),
+                os.path.join(os.getcwd(), 'templates', 'template_mygov.docx'),
+            ]
+            
+            for alt_path in alternative_paths:
+                if os.path.exists(alt_path):
+                    logger.info(f"[DOCX_TEMPLATE:FOUND_ALT] Шаблон найден по альтернативному пути: {alt_path}")
+                    template_path = alt_path
+                    break
+            else:
+                logger.error(f"[DOCX_TEMPLATE:NOT_FOUND] Шаблон не найден: {template_path}")
+                logger.debug(f"[DOCX_TEMPLATE] Текущая рабочая директория: {os.getcwd()}")
+                logger.debug(f"[DOCX_TEMPLATE] Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
+                if app:
+                    logger.debug(f"[DOCX_TEMPLATE] app.root_path: {app.root_path}")
+                    logger.debug(f"[DOCX_TEMPLATE] Проверка существования директории templates: {os.path.exists(os.path.join(os.path.dirname(app.root_path), 'templates'))}")
+                return None
         
         logger.debug(f"[DOCX_TEMPLATE:FOUND] Шаблон найден: {template_path}")
         
