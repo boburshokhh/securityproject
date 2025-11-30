@@ -127,8 +127,18 @@ def generate_document(document_data, app=None):
         if pdf_path:
             log_document_generation("PDF_SUCCESS", "PDF создан успешно", 
                                    document_id=document_id, pdf_path=pdf_path)
-            db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [document_id])
-            log_document_generation("PDF_UPDATE", "Путь PDF обновлен в БД", document_id=document_id)
+            try:
+                db_update('documents', {'pdf_path': pdf_path}, 'id = %s', [document_id])
+                log_document_generation("PDF_UPDATE", "Путь PDF обновлен в БД", document_id=document_id, pdf_path=pdf_path)
+                
+                # Проверяем, что обновление прошло успешно
+                updated_doc = db_select('documents', 'id = %s', [document_id], fetch_one=True)
+                if updated_doc and updated_doc.get('pdf_path') == pdf_path:
+                    logger.debug(f"[DOC_GEN:PDF_VERIFY] PDF путь подтвержден в БД: {pdf_path}")
+                else:
+                    logger.error(f"[DOC_GEN:PDF_VERIFY_FAIL] PDF путь не обновлен в БД! Ожидалось: {pdf_path}, получено: {updated_doc.get('pdf_path') if updated_doc else 'None'}")
+            except Exception as update_error:
+                log_error_with_context(update_error, f"Ошибка при обновлении pdf_path в БД, document_id={document_id}, pdf_path={pdf_path}")
         else:
             logger.warning(f"[DOC_GEN:PDF_WARNING] PDF не был создан для документа {document_id}, но документ сохранен")
         
@@ -683,13 +693,55 @@ def convert_docx_to_pdf(docx_path, document_uuid, app=None):
                 return None
             
             # Сохраняем временно в /tmp для лучшей совместимости
+            # Используем tempfile для безопасного создания временных файлов
+            import tempfile
             temp_dir = os.environ.get('TMPDIR', '/tmp')
             os.makedirs(temp_dir, exist_ok=True)
-            temp_docx = os.path.join(temp_dir, f"temp_{document_uuid}.docx")
-            log_pdf_conversion("TEMP_SAVE", "Сохранение временного DOCX", temp_path=temp_docx)
-            with open(temp_docx, 'wb') as f:
-                f.write(docx_data)
-            docx_path = temp_docx
+            
+            # Создаем временный файл с правильными правами
+            try:
+                # Пробуем создать файл с правами для текущего пользователя
+                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=temp_dir)
+                log_pdf_conversion("TEMP_SAVE", "Сохранение временного DOCX", temp_path=temp_docx)
+                with os.fdopen(temp_fd, 'wb') as f:
+                    f.write(docx_data)
+                # Устанавливаем права на чтение/запись для всех (для www-data)
+                os.chmod(temp_docx, 0o666)
+                docx_path = temp_docx
+            except PermissionError as perm_error:
+                logger.error(f"[PDF_CONV:TEMP_PERM_ERROR] Ошибка прав доступа при создании временного файла: {perm_error}")
+                # Пробуем альтернативный путь
+                alt_temp_dir = os.path.join(os.environ.get('HOME', '/var/www'), '.tmp')
+                os.makedirs(alt_temp_dir, exist_ok=True)
+                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{document_uuid}_', dir=alt_temp_dir)
+                with os.fdopen(temp_fd, 'wb') as f:
+                    f.write(docx_data)
+                os.chmod(temp_docx, 0o666)
+                docx_path = temp_docx
+                log_pdf_conversion("TEMP_SAVE_ALT", "Сохранение временного DOCX в альтернативную директорию", temp_path=temp_docx)
+        elif not os.path.exists(docx_path):
+            # Старый формат пути (локальный файл) - пробуем получить из MinIO по UUID
+            logger.warning(f"[PDF_CONV:OLD_FORMAT] Обнаружен старый формат пути, пробуем получить из MinIO: {docx_path}")
+            # Извлекаем UUID из имени файла
+            filename = os.path.basename(docx_path)
+            uuid_from_filename = filename.replace('.docx', '')
+            minio_path = f"minio://dmed/{filename}"
+            log_pdf_conversion("MINIO_GET_OLD", "Попытка получить DOCX из MinIO по старому пути", minio_path=minio_path)
+            docx_data = storage_manager.get_file(minio_path)
+            if docx_data:
+                # Сохраняем во временный файл
+                import tempfile
+                temp_dir = os.environ.get('TMPDIR', '/tmp')
+                os.makedirs(temp_dir, exist_ok=True)
+                temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix=f'temp_{uuid_from_filename}_', dir=temp_dir)
+                with os.fdopen(temp_fd, 'wb') as f:
+                    f.write(docx_data)
+                os.chmod(temp_docx, 0o666)
+                docx_path = temp_docx
+                log_pdf_conversion("TEMP_SAVE_OLD", "Сохранение DOCX из старого формата", temp_path=temp_docx)
+            else:
+                logger.error(f"[PDF_CONV:OLD_FORMAT_FAIL] Не удалось получить DOCX из MinIO для старого формата: {minio_path}")
+                return None
         
         # Проверяем существование файла
         if not os.path.exists(docx_path):
