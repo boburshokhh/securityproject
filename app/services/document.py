@@ -261,6 +261,11 @@ def fill_docx_template(document_data, app=None):
         replace_placeholders(doc, replacements)
         logger.debug(f"[DOCX_TEMPLATE] Замена плейсхолдеров завершена")
         
+        # Форматируем метки полей жирным шрифтом
+        logger.debug(f"[DOCX_TEMPLATE] Форматирование меток полей жирным шрифтом...")
+        format_field_labels(doc)
+        logger.debug(f"[DOCX_TEMPLATE] Форматирование меток полей завершено")
+        
         # Добавляем QR-код
         add_qr_code(doc, document_data, app)
         
@@ -475,6 +480,134 @@ def replace_placeholders(doc, replacements):
         logger.debug(f"[DOCX_REPLACE] Найденные плейсхолдеры: {found_placeholders}")
     else:
         logger.warning(f"[DOCX_REPLACE] ВНИМАНИЕ: Плейсхолдеры не найдены в документе! Проверьте шаблон.")
+
+
+def format_field_labels(doc):
+    """
+    Форматирует все метки полей (названия переменных) и тексты перед значениями жирным шрифтом.
+    Автоматически находит тексты, заканчивающиеся двоеточием, и делает их жирными.
+    """
+    
+    def process_paragraph(paragraph):
+        """Обрабатывает параграф и делает все метки полей (тексты с двоеточием) жирными"""
+        if not paragraph.runs:
+            return
+        
+        # Получаем весь текст параграфа
+        full_text = paragraph.text
+        
+        # Ищем все тексты, заканчивающиеся двоеточием (метки полей)
+        # Паттерн: текст, заканчивающийся двоеточием, возможно с пробелами после
+        # Это покроет все метки типа "F.I.Sh:", "Jinsi:", "Yashash manzili:" и т.д.
+        pattern = r'([^\s:]+(?:\s+[^\s:]+)*\s*:)'
+        
+        # Проверяем, есть ли в тексте метки полей
+        matches = list(re.finditer(pattern, full_text))
+        if not matches:
+            return
+        
+        # Если нашли метки, нужно переформатировать параграф
+        # Сохраняем выравнивание
+        alignment = paragraph.alignment
+        
+        # Очищаем параграф
+        paragraph.clear()
+        if alignment:
+            paragraph.alignment = alignment
+        
+        # Разбиваем текст на части по меткам полей
+        last_end = 0
+        for match in matches:
+            # Добавляем текст до метки
+            if match.start() > last_end:
+                text_before = full_text[last_end:match.start()]
+                if text_before:
+                    run = paragraph.add_run(text_before)
+                    run.font.name = 'Times New Roman'
+                    run.font.size = Pt(10.5)
+                    if run._element.rPr is None:
+                        run._element.get_or_add_rPr()
+                    rFonts = run._element.rPr.find(qn('w:rFonts'))
+                    if rFonts is None:
+                        rFonts = OxmlElement(qn('w:rFonts'))
+                        run._element.rPr.append(rFonts)
+                    rFonts.set(qn('w:ascii'), 'Times New Roman')
+                    rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+                    rFonts.set(qn('w:cs'), 'Times New Roman')
+            
+            # Добавляем метку поля жирным
+            label_text = match.group(1)
+            run = paragraph.add_run(label_text)
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(10.5)
+            run.font.bold = True  # Делаем жирным
+            logger.debug(f"[DOCX_FORMAT] Метка поля выделена жирным: {label_text}")
+            
+            if run._element.rPr is None:
+                run._element.get_or_add_rPr()
+            rFonts = run._element.rPr.find(qn('w:rFonts'))
+            if rFonts is None:
+                rFonts = OxmlElement(qn('w:rFonts'))
+                run._element.rPr.append(rFonts)
+            rFonts.set(qn('w:ascii'), 'Times New Roman')
+            rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+            rFonts.set(qn('w:cs'), 'Times New Roman')
+            
+            last_end = match.end()
+        
+        # Добавляем оставшийся текст после последней метки
+        if last_end < len(full_text):
+            text_after = full_text[last_end:]
+            if text_after:
+                run = paragraph.add_run(text_after)
+                run.font.name = 'Times New Roman'
+                run.font.size = Pt(10.5)
+                if run._element.rPr is None:
+                    run._element.get_or_add_rPr()
+                rFonts = run._element.rPr.find(qn('w:rFonts'))
+                if rFonts is None:
+                    rFonts = OxmlElement(qn('w:rFonts'))
+                    run._element.rPr.append(rFonts)
+                rFonts.set(qn('w:ascii'), 'Times New Roman')
+                rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+                rFonts.set(qn('w:cs'), 'Times New Roman')
+    
+    # Обрабатываем все параграфы в документе
+    for para in doc.paragraphs:
+        process_paragraph(para)
+    
+    # Обрабатываем параграфы в таблицах
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    process_paragraph(para)
+    
+    # Обрабатываем колонтитулы
+    for section in doc.sections:
+        # Headers
+        for header in [section.header, section.first_page_header, section.even_page_header]:
+            if header:
+                for para in header.paragraphs:
+                    process_paragraph(para)
+                for table in header.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            for para in cell.paragraphs:
+                                process_paragraph(para)
+        
+        # Footers
+        for footer in [section.footer, section.first_page_footer, section.even_page_footer]:
+            if footer:
+                for para in footer.paragraphs:
+                    process_paragraph(para)
+                for table in footer.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            for para in cell.paragraphs:
+                                process_paragraph(para)
+    
+    logger.debug(f"[DOCX_FORMAT] Форматирование меток полей завершено")
 
 
 def add_qr_code(doc, document_data, app=None):
