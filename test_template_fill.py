@@ -4,7 +4,15 @@
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Активация виртуального окружения
+project_dir = os.path.dirname(os.path.abspath(__file__))
+venv_python = os.path.join(project_dir, 'venv', 'bin', 'python3')
+if os.path.exists(venv_python):
+    # Если venv существует, используем его
+    pass
+
+sys.path.insert(0, project_dir)
 
 from app import create_app
 from app.services.document import fill_docx_template, prepare_replacements

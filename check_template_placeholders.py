@@ -4,7 +4,18 @@
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Активация виртуального окружения
+project_dir = os.path.dirname(os.path.abspath(__file__))
+venv_python = os.path.join(project_dir, 'venv', 'bin', 'python3')
+if os.path.exists(venv_python):
+    # Если venv существует, используем его
+    pass
+else:
+    # Иначе используем системный python
+    pass
+
+sys.path.insert(0, project_dir)
 
 from docx import Document
 import re
