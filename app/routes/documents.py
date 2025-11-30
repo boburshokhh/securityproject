@@ -362,6 +362,7 @@ def verify_by_pin():
             'success': True,
             'document': {
                 'id': document['id'],
+                'uuid': document.get('uuid', ''),
                 'doc_number': document.get('mygov_doc_number', ''),
                 'patient_name': document.get('patient_name', ''),
                 'gender': document.get('gender', ''),

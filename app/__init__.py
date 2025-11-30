@@ -36,8 +36,14 @@ def create_app():
         logger.info(f"[REQUEST] {request.method} {request.path}")
         logger.info(f"[REQUEST] Headers: {dict(request.headers)}")
         logger.info(f"[REQUEST] Remote: {request.remote_addr}")
-        if request.is_json:
-            logger.debug(f"[REQUEST] JSON Data: {request.get_json()}")
+        # Парсим JSON только для POST/PUT/PATCH запросов с телом
+        if request.method in ['POST', 'PUT', 'PATCH'] and request.is_json:
+            try:
+                json_data = request.get_json(silent=True, force=True)
+                if json_data:
+                    logger.debug(f"[REQUEST] JSON Data: {json_data}")
+            except Exception:
+                pass  # Игнорируем ошибки парсинга JSON
         elif request.form:
             logger.debug(f"[REQUEST] Form Data: {dict(request.form)}")
     
