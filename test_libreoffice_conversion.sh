@@ -19,24 +19,34 @@ echo "1. Создание тестового DOCX файла..."
 cd "$PROJECT_DIR"
 source venv/bin/activate
 
-python3 << 'PYTHON_EOF'
+# Используем фиксированный путь
+TEST_DOCX="$TEST_DIR/test.docx"
+TEST_PDF="$TEST_DIR/test.pdf"
+
+# Создаем директорию
+mkdir -p "$TEST_DIR"
+
+python3 << PYTHON_EOF
 from docx import Document
 import os
 
 doc = Document()
 doc.add_paragraph('Тестовый документ для конвертации в PDF')
 doc.add_paragraph('Это проверка работы LibreOffice на сервере.')
-test_file = f'/tmp/libreoffice_test_{os.getpid()}/test.docx'
+test_file = '$TEST_DOCX'
 os.makedirs(os.path.dirname(test_file), exist_ok=True)
 doc.save(test_file)
-print(f"✓ Тестовый файл создан: {test_file}")
+if os.path.exists(test_file):
+    print(f"✓ Тестовый файл создан: {test_file}")
+    print(f"  Размер: {os.path.getsize(test_file)} bytes")
+else:
+    print(f"✗ Файл не найден после создания: {test_file}")
 PYTHON_EOF
-
-TEST_DOCX="$TEST_DIR/test.docx"
-TEST_PDF="$TEST_DIR/test.pdf"
 
 if [ ! -f "$TEST_DOCX" ]; then
     echo "✗ Не удалось создать тестовый DOCX"
+    echo "  Проверка директории: $TEST_DIR"
+    ls -la "$TEST_DIR" 2>/dev/null || echo "  Директория не существует"
     exit 1
 fi
 

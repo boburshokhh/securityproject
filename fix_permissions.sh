@@ -42,3 +42,4 @@ echo "  Готово! Перезапустите сервис:"
 echo "  sudo systemctl restart mygov-backend"
 echo "=========================================="
 
+

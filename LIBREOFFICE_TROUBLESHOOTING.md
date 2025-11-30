@@ -169,3 +169,4 @@ python3 test_generate.py
 - Код конвертации: `app/services/document.py` функция `convert_docx_to_pdf`
 - Функция поиска LibreOffice: `app/services/document.py` функция `find_libreoffice`
 
+

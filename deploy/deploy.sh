@@ -26,9 +26,21 @@ fi
 
 echo -e "${GREEN}[1/8] Создание директорий...${NC}"
 mkdir -p "$PROJECT_DIR"
+mkdir -p "$PROJECT_DIR/uploads/documents"
+mkdir -p "$PROJECT_DIR/templates"
 mkdir -p "$LOG_DIR"
+mkdir -p /var/www/.cache/dconf
+mkdir -p /var/www/.config
+mkdir -p /var/www/.local/share
 chown -R www-data:www-data "$PROJECT_DIR"
 chown -R www-data:www-data "$LOG_DIR"
+chown -R www-data:www-data /var/www/.cache
+chown -R www-data:www-data /var/www/.config
+chown -R www-data:www-data /var/www/.local
+chmod -R 755 "$PROJECT_DIR"
+chmod -R 775 "$PROJECT_DIR/uploads"
+chmod 1777 /tmp
+chmod 1777 /var/tmp
 
 echo -e "${GREEN}[2/8] Копирование файлов проекта...${NC}"
 # Копируем все файлы кроме venv, __pycache__, .env
@@ -69,7 +81,53 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
 fi
 
 echo -e "${GREEN}[6/8] Установка systemd сервиса...${NC}"
-cp deploy/mygov-backend.service /etc/systemd/system/$SERVICE_NAME.service
+
+# Определяем модуль приложения
+if [ -f "$PROJECT_DIR/run.py" ]; then
+    APP_MODULE="run:app"
+    BIND_ADDRESS="0.0.0.0:8000"
+else
+    APP_MODULE="app:app"
+    BIND_ADDRESS="127.0.0.1:5001"
+fi
+
+# Обновляем systemd файл с правильными настройками
+tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null << EOF
+[Unit]
+Description=MyGov Backend Gunicorn Application Server
+After=network.target postgresql.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=$PROJECT_DIR
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PROJECT_DIR/venv/bin"
+Environment="HOME=/var/www"
+Environment="TMPDIR=/tmp"
+Environment="TMP=/tmp"
+Environment="TEMP=/tmp"
+Environment="XDG_CACHE_HOME=/var/www/.cache"
+Environment="XDG_CONFIG_HOME=/var/www/.config"
+Environment="XDG_DATA_HOME=/var/www/.local/share"
+ExecStart=$PROJECT_DIR/venv/bin/gunicorn \\
+    --workers 4 \\
+    --bind $BIND_ADDRESS \\
+    --timeout 300 \\
+    --access-logfile $LOG_DIR/access.log \\
+    --error-logfile $LOG_DIR/error.log \\
+    --log-level info \\
+    --capture-output \\
+    --enable-stdio-inheritance \\
+    --chdir $PROJECT_DIR \\
+    $APP_MODULE
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
 systemctl enable $SERVICE_NAME.service
 

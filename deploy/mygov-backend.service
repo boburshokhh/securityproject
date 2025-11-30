@@ -6,7 +6,7 @@ After=network.target postgresql.service
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/my-gov-backend
-Environment="PATH=/var/www/my-gov-backend/venv/bin"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/var/www/my-gov-backend/venv/bin"
 Environment="HOME=/var/www"
 Environment="TMPDIR=/tmp"
 Environment="TMP=/tmp"
