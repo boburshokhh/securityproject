@@ -17,7 +17,7 @@ from docx.oxml import OxmlElement
 from app.config import FRONTEND_URL, UPLOAD_FOLDER, TYPE_DOC
 from app.services.qr_code import generate_simple_qr, save_qr_to_file
 from app.services.storage import storage_manager
-from app.services.database import get_next_mygov_doc_number, db_insert, db_update
+from app.services.database import get_next_mygov_doc_number, db_insert, db_update, db_select
 from app.utils.logger import (
     logger, log_document_generation, log_pdf_conversion, 
     log_error_with_context, log_function_call
