@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import tempfile
 from datetime import datetime
+from typing import Dict, Any, Optional
 from docx import Document
 from docx.shared import Pt, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -92,11 +93,14 @@ def generate_document(document_data, app=None):
                                patient=document_data.get('patient_name'))
         # Вставляем в БД
         created_document = db_insert('documents', db_data)
-        if not created_document:
+        if not created_document or not isinstance(created_document, dict):
             logger.error("[DOC_GEN:DB_INSERT] Не удалось создать документ в БД")
             return None
         
-        document_id = created_document['id']
+        document_id = created_document.get('id')  # type: ignore
+        if not document_id:
+            logger.error("[DOC_GEN:DB_INSERT] Документ создан, но ID отсутствует")
+            return None
         log_document_generation("DB_SUCCESS", "Документ создан в БД", 
                                document_id=document_id, doc_number=mygov_doc_number)
         
@@ -135,18 +139,20 @@ def generate_document(document_data, app=None):
                 
                 # Проверяем, что обновление прошло успешно
                 updated_doc = db_select('documents', 'id = %s', [document_id], fetch_one=True)
-                if updated_doc and updated_doc.get('pdf_path') == pdf_path:
+                if updated_doc and isinstance(updated_doc, dict) and updated_doc.get('pdf_path') == pdf_path:
                     logger.debug(f"[DOC_GEN:PDF_VERIFY] PDF путь подтвержден в БД: {pdf_path}")
                 else:
-                    logger.error(f"[DOC_GEN:PDF_VERIFY_FAIL] PDF путь не обновлен в БД! Ожидалось: {pdf_path}, получено: {updated_doc.get('pdf_path') if updated_doc else 'None'}")
+                    pdf_path_actual = updated_doc.get('pdf_path') if (updated_doc and isinstance(updated_doc, dict)) else 'None'
+                    logger.error(f"[DOC_GEN:PDF_VERIFY_FAIL] PDF путь не обновлен в БД! Ожидалось: {pdf_path}, получено: {pdf_path_actual}")
             except Exception as update_error:
                 log_error_with_context(update_error, f"Ошибка при обновлении pdf_path в БД, document_id={document_id}, pdf_path={pdf_path}")
         else:
             logger.warning(f"[DOC_GEN:PDF_WARNING] PDF не был создан для документа {document_id}, но документ сохранен")
         
         # Возвращаем результат
-        created_document['docx_path'] = docx_path
-        created_document['pdf_path'] = pdf_path
+        if isinstance(created_document, dict):
+            created_document['docx_path'] = docx_path  # type: ignore
+            created_document['pdf_path'] = pdf_path  # type: ignore
         
         log_document_generation("SUCCESS", "Генерация документа завершена успешно", 
                                document_id=document_id, doc_number=mygov_doc_number,
