@@ -16,24 +16,31 @@ fi
 
 DOC_ID=$1
 
-python3 << PYTHON_EOF
+python3 - "$DOC_ID" << PYTHON_EOF
 from app.services.database import db_query, db_select
 from app.services.storage import storage_manager
 from app.services.document import convert_docx_to_pdf
 from app import create_app
 import os
+import sys
+
+# Получаем ID документа из аргументов
+doc_id = int(sys.argv[1]) if len(sys.argv) > 1 else None
+if not doc_id:
+    print("Ошибка: не указан ID документа")
+    sys.exit(1)
 
 app = create_app()
 
-print(f"\nПроверка документа ID: {DOC_ID}")
+print(f"\nПроверка документа ID: {doc_id}")
 print("=" * 60)
 
 # Получаем документ
-doc = db_select('documents', 'id = %s AND type_doc = 2', [DOC_ID], fetch_one=True)
+doc = db_select('documents', 'id = %s AND type_doc = 2', [doc_id], fetch_one=True)
 
 if not doc:
-    print(f"✗ Документ {DOC_ID} не найден")
-    exit(1)
+    print(f"✗ Документ {doc_id} не найден")
+    sys.exit(1)
 
 print(f"✓ Документ найден")
 print(f"  Номер: {doc.get('mygov_doc_number')}")
@@ -110,7 +117,7 @@ if docx_path:
             
             # Обновляем в БД
             from app.services.database import db_update
-            db_update('documents', {'pdf_path': new_pdf_path}, 'id = %s', [DOC_ID])
+            db_update('documents', {'pdf_path': new_pdf_path}, 'id = %s', [doc_id])
             print(f"  ✓ pdf_path обновлен в БД")
         else:
             print(f"  ✗ PDF не создан (convert_docx_to_pdf вернул None)")
