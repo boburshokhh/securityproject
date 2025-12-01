@@ -1,7 +1,7 @@
 """
 MyGov Backend - Маршруты документов
 """
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, request, jsonify, send_file, current_app, url_for
 from io import BytesIO
 
 from app.config import TYPE_DOC, FRONTEND_URL
@@ -381,6 +381,8 @@ def verify_by_pin():
                 'days_off_from': document['days_off_from'].isoformat() if document.get('days_off_from') and hasattr(document['days_off_from'], 'isoformat') else document.get('days_off_from', ''),
                 'days_off_to': document['days_off_to'].isoformat() if document.get('days_off_to') and hasattr(document['days_off_to'], 'isoformat') else document.get('days_off_to', ''),
                 'download_url': f"/api/documents/{document['id']}/download",
+                'pdf_url': url_for('documents.download_document', doc_id=document['id'], _external=True),
+                'pdf_url_by_uuid': url_for('documents.download_document', doc_id=document['id'], _external=True) if document.get('uuid') else None,
                 'verified': True
             }
         })

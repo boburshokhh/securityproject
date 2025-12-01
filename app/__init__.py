@@ -57,11 +57,14 @@ def create_app():
         return response
     
     # Настройка CORS
+    # Разрешаем все origins для публичных API
     CORS(app, resources={
         r"/api/*": {
             "origins": "*",
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"]
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "supports_credentials": False,
+            "max_age": 3600
         }
     })
     
@@ -69,10 +72,12 @@ def create_app():
     from app.routes.auth import auth_bp
     from app.routes.documents import documents_bp
     from app.routes.admin import admin_bp
+    from app.routes.access import access_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(documents_bp, url_prefix='/api/documents')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(access_bp, url_prefix='/api/access')
     
     # Маршрут проверки здоровья
     @app.route('/health')
