@@ -341,7 +341,17 @@ def prepare_replacements(document_data):
         except:
             return ''
     
-    days_off_count = calculate_days_off(document_data.get('days_off_from'), document_data.get('days_off_to'))
+    # days_off_count = calculate_days_off(document_data.get('days_off_from'), document_data.get('days_off_to'))
+    
+    # Формируем период освобождения (даты)
+    date_from = format_date(document_data.get('days_off_from'))
+    date_to = format_date(document_data.get('days_off_to'))
+    
+    days_off_period_str = ""
+    if date_from and date_to:
+        days_off_period_str = f"{date_from} - {date_to}"
+    elif date_from:
+        days_off_period_str = f"с {date_from}"
     
     return {
         '{{doc_number}}': f"№ {document_data.get('mygov_doc_number', '')}", # Форматированный номер
@@ -361,9 +371,9 @@ def prepare_replacements(document_data):
         '{{doctor_name}}': document_data.get('doctor_name', ''),
         '{{doctor_position}}': document_data.get('doctor_position', ''),
         '{{department_head_name}}': document_data.get('department_head_name', ''),
-        '{{days_off_from}}': format_date(document_data.get('days_off_from')),
-        '{{days_off_to}}': format_date(document_data.get('days_off_to')),
-        '{{days_off_period}}': days_off_count,
+        '{{days_off_from}}': date_from,
+        '{{days_off_to}}': date_to,
+        '{{days_off_period}}': days_off_period_str,
         '{{issue_date}}': format_date(document_data.get('issue_date')),
         '{{pin_code}}': document_data.get('pin_code', ''),  # PIN-код заменяется здесь
         # {{qr_code}} обрабатывается отдельно в add_qr_code (нужно изображение)

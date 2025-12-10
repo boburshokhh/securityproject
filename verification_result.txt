@@ -1,0 +1,11 @@
+--- Verifying calculate_days_off logic ---
+calculate_days_off(datetime, datetime): 5 (Expected: 5)
+calculate_days_off(str_space, str_space): 5 (Expected: 5)
+
+--- Verifying generate_document with empty strings ---
+Document created with ID: 535
+DB Result (Should be None/None): RealDictRow({'days_off_from': None, 'days_off_to': None})
+
+--- Verifying generate_document with valid dates ---
+Document created with ID: 536
+DB Result: RealDictRow({'days_off_from': datetime.datetime(2023, 12, 1, 0, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=18000))), 'days_off_to': datetime.datetime(2023, 12, 5, 0, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=18000)))})

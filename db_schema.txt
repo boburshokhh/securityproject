@@ -1,0 +1,43 @@
+Columns in 'documents' table:
+id: bigint
+doc_number: character varying
+pin_code: character varying
+uuid: character varying
+patient_name: character varying
+gender: character varying
+age: character varying
+jshshir: character varying
+address: character varying
+attached_medical_institution: character varying
+diagnosis: text
+diagnosis_icd10_code: character varying
+final_diagnosis: character varying
+final_diagnosis_icd10_code: character varying
+organization: character varying
+doctor_name: character varying
+doctor_position: character varying
+department_head_name: character varying
+days_off_from: timestamp with time zone
+days_off_to: timestamp with time zone
+issue_date: timestamp with time zone
+docx_path: character varying
+pdf_path: character varying
+created_at: timestamp with time zone
+updated_at: timestamp with time zone
+relationship_to_patient: character varying
+work_or_study_place: character varying
+vmk_chairman_name: character varying
+tiek_exam_date: date
+tiek_conclusion: text
+tiek_chairman_name: character varying
+institution_name: character varying
+infectious_contact_info: character varying
+treatment_type: character varying
+treatment_violation_notes: text
+temporary_job_transfer: character varying
+certificate_issuing_institution: character varying
+permission_for_out_of_town_patient: character varying
+incapacity_reason: character varying
+created_by: integer
+type_doc: integer
+mygov_doc_number: character varying
