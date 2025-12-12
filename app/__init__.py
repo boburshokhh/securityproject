@@ -13,6 +13,17 @@ def create_app():
     """Создает и конфигурирует Flask приложение"""
     app = Flask(__name__)
     
+    # Отладочный лог агента (Linux/production путь)
+    debug_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.cursor', 'debug.log')
+    def _agent_log(payload: dict):
+        try:
+            log_dir = os.path.dirname(debug_log_path)
+            os.makedirs(log_dir, exist_ok=True)
+            with open(debug_log_path, 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps(payload) + "\n")
+        except Exception:
+            pass
+    
     # Загружаем конфигурацию
     from app.config import SECRET_KEY, UPLOAD_FOLDER, DEBUG
     app.config['SECRET_KEY'] = SECRET_KEY
@@ -51,23 +62,22 @@ def create_app():
         #region agent log
         try:
             if request.path.startswith('/api/files') or request.method == 'OPTIONS':
-                with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
-                    _f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "cors-preflight",
-                        "hypothesisId": "C1",
-                        "location": "app/__init__.py:before_request",
-                        "message": "Incoming request",
-                        "data": {
-                            "method": request.method,
-                            "path": request.path,
-                            "origin": request.headers.get('Origin'),
-                            "host": request.headers.get('Host'),
-                            "access_control_request_method": request.headers.get('Access-Control-Request-Method'),
-                            "access_control_request_headers": request.headers.get('Access-Control-Request-Headers')
-                        },
-                        "timestamp": int(datetime.now().timestamp() * 1000)
-                    }) + "\n")
+                _agent_log({
+                    "sessionId": "debug-session",
+                    "runId": "cors-preflight",
+                    "hypothesisId": "C1",
+                    "location": "app/__init__.py:before_request",
+                    "message": "Incoming request",
+                    "data": {
+                        "method": request.method,
+                        "path": request.path,
+                        "origin": request.headers.get('Origin'),
+                        "host": request.headers.get('Host'),
+                        "access_control_request_method": request.headers.get('Access-Control-Request-Method'),
+                        "access_control_request_headers": request.headers.get('Access-Control-Request-Headers')
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                })
         except Exception:
             pass
         #endregion
@@ -82,24 +92,23 @@ def create_app():
         #region agent log
         try:
             if request.path.startswith('/api/files') or request.method == 'OPTIONS':
-                with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
-                    _f.write(json.dumps({
-                        "sessionId": "debug-session",
-                        "runId": "cors-preflight",
-                        "hypothesisId": "C1",
-                        "location": "app/__init__.py:after_request",
-                        "message": "Response sent",
-                        "data": {
-                            "status": response.status_code,
-                            "path": request.path,
-                            "method": request.method,
-                            "has_acao": bool(response.headers.get('Access-Control-Allow-Origin')),
-                            "acao": response.headers.get('Access-Control-Allow-Origin'),
-                            "acah": response.headers.get('Access-Control-Allow-Headers'),
-                            "acam": response.headers.get('Access-Control-Allow-Methods')
-                        },
-                        "timestamp": int(datetime.now().timestamp() * 1000)
-                    }) + "\n")
+                _agent_log({
+                    "sessionId": "debug-session",
+                    "runId": "cors-preflight",
+                    "hypothesisId": "C1",
+                    "location": "app/__init__.py:after_request",
+                    "message": "Response sent",
+                    "data": {
+                        "status": response.status_code,
+                        "path": request.path,
+                        "method": request.method,
+                        "has_acao": bool(response.headers.get('Access-Control-Allow-Origin')),
+                        "acao": response.headers.get('Access-Control-Allow-Origin'),
+                        "acah": response.headers.get('Access-Control-Allow-Headers'),
+                        "acam": response.headers.get('Access-Control-Allow-Methods')
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                })
         except Exception:
             pass
         #endregion
