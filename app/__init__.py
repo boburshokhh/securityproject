@@ -131,11 +131,13 @@ def create_app():
     from app.routes.documents import documents_bp
     from app.routes.admin import admin_bp
     from app.routes.access import access_bp
+    from app.routes.files import files_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(documents_bp, url_prefix='/api/documents')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(access_bp, url_prefix='/api/access')
+    app.register_blueprint(files_bp, url_prefix='/api/files')
     
     # Маршрут проверки здоровья
     @app.route('/health')
