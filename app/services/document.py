@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import uuid
+import json
 import subprocess
 import shutil
 import tempfile
@@ -270,11 +271,77 @@ def fill_docx_template(document_data, app=None):
         add_qr_code(doc, document_data, app)
         
         # Сохраняем документ
+        #region agent log
+        try:
+            with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "document.py:fill_docx_template:pre_makedirs",
+                    "message": "Preparing to ensure upload folder",
+                    "data": {
+                        "cwd": os.getcwd(),
+                        "upload_folder": UPLOAD_FOLDER,
+                        "abs_upload": os.path.abspath(UPLOAD_FOLDER),
+                        "exists": os.path.exists(UPLOAD_FOLDER),
+                        "writable": os.access(UPLOAD_FOLDER, os.W_OK),
+                        "uid": getattr(os, "getuid", lambda: None)(),
+                        "euid": getattr(os, "geteuid", lambda: None)(),
+                        "gid": getattr(os, "getgid", lambda: None)(),
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        #endregion
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        #region agent log
+        try:
+            with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "document.py:fill_docx_template:post_makedirs",
+                    "message": "Upload folder ensured",
+                    "data": {
+                        "abs_upload": os.path.abspath(UPLOAD_FOLDER),
+                        "exists": os.path.exists(UPLOAD_FOLDER),
+                        "writable": os.access(UPLOAD_FOLDER, os.W_OK),
+                        "stat_mode": oct(os.stat(UPLOAD_FOLDER).st_mode) if os.path.exists(UPLOAD_FOLDER) else None,
+                        "uid": getattr(os, "getuid", lambda: None)(),
+                        "gid": getattr(os, "getgid", lambda: None)(),
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        #endregion
         document_uuid = document_data.get('uuid', str(uuid.uuid4()))
         output_path = os.path.join(UPLOAD_FOLDER, f"{document_uuid}.docx")
         
         doc.save(output_path)
+        #region agent log
+        try:
+            with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "document.py:fill_docx_template:post_doc_save",
+                    "message": "DOCX saved locally",
+                    "data": {
+                        "output_path": output_path,
+                        "exists": os.path.exists(output_path),
+                        "writable": os.access(os.path.dirname(output_path) or ".", os.W_OK),
+                        "size": os.path.getsize(output_path) if os.path.exists(output_path) else None
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        #endregion
         
         # Сохраняем в MinIO
         with open(output_path, 'rb') as f:
@@ -639,7 +706,46 @@ def add_qr_code(doc, document_data, app=None):
         # Сохраняем во временный файл
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         qr_temp_path = os.path.join(UPLOAD_FOLDER, f'qr_temp_{pin_code}.png')
+        #region agent log
+        try:
+            with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "document.py:add_qr_code:pre_save_qr",
+                    "message": "About to save QR to temp file",
+                    "data": {
+                        "qr_temp_path": qr_temp_path,
+                        "upload_exists": os.path.exists(UPLOAD_FOLDER),
+                        "upload_writable": os.access(UPLOAD_FOLDER, os.W_OK),
+                        "temp_exists": os.path.exists(qr_temp_path),
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        #endregion
         save_qr_to_file(qr_img, qr_temp_path)
+        #region agent log
+        try:
+            with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "document.py:add_qr_code:post_save_qr",
+                    "message": "QR temp file saved",
+                    "data": {
+                        "qr_temp_path": qr_temp_path,
+                        "exists": os.path.exists(qr_temp_path),
+                        "size": os.path.getsize(qr_temp_path) if os.path.exists(qr_temp_path) else None
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }) + "\n")
+        except Exception:
+            pass
+        #endregion
         
         qr_added = False
         
