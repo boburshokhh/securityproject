@@ -3,6 +3,8 @@ MyGov Backend - Инициализация Flask приложения
 """
 import logging
 import os
+import json
+from datetime import datetime
 from flask import Flask
 from flask_cors import CORS
 
@@ -46,6 +48,29 @@ def create_app():
                 pass  # Игнорируем ошибки парсинга JSON
         elif request.form:
             logger.debug(f"[REQUEST] Form Data: {dict(request.form)}")
+        #region agent log
+        try:
+            if request.path.startswith('/api/files') or request.method == 'OPTIONS':
+                with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "cors-preflight",
+                        "hypothesisId": "C1",
+                        "location": "app/__init__.py:before_request",
+                        "message": "Incoming request",
+                        "data": {
+                            "method": request.method,
+                            "path": request.path,
+                            "origin": request.headers.get('Origin'),
+                            "host": request.headers.get('Host'),
+                            "access_control_request_method": request.headers.get('Access-Control-Request-Method'),
+                            "access_control_request_headers": request.headers.get('Access-Control-Request-Headers')
+                        },
+                        "timestamp": int(datetime.now().timestamp() * 1000)
+                    }) + "\n")
+        except Exception:
+            pass
+        #endregion
     
     @app.after_request
     def log_response_info(response):
@@ -54,6 +79,30 @@ def create_app():
         logger.info(f"[RESPONSE] {response.status_code} {request.method} {request.path}")
         if response.status_code >= 400:
             logger.warning(f"[RESPONSE] Error response: {response.get_data(as_text=True)[:500]}")
+        #region agent log
+        try:
+            if request.path.startswith('/api/files') or request.method == 'OPTIONS':
+                with open(r'c:\Users\user\Desktop\mygov\my-gov-backend\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "cors-preflight",
+                        "hypothesisId": "C1",
+                        "location": "app/__init__.py:after_request",
+                        "message": "Response sent",
+                        "data": {
+                            "status": response.status_code,
+                            "path": request.path,
+                            "method": request.method,
+                            "has_acao": bool(response.headers.get('Access-Control-Allow-Origin')),
+                            "acao": response.headers.get('Access-Control-Allow-Origin'),
+                            "acah": response.headers.get('Access-Control-Allow-Headers'),
+                            "acam": response.headers.get('Access-Control-Allow-Methods')
+                        },
+                        "timestamp": int(datetime.now().timestamp() * 1000)
+                    }) + "\n")
+        except Exception:
+            pass
+        #endregion
         return response
     
     # Настройка CORS
