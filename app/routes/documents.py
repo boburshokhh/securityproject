@@ -123,6 +123,39 @@ def get_document(doc_id):
         return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
 
 
+@documents_bp.route('/<int:doc_id>', methods=['DELETE'])
+@require_auth
+def delete_document(doc_id):
+    """Удаление документа (только для super_admin)"""
+    try:
+        # Проверяем роль
+        if request.current_user.get('role') != 'super_admin':
+            return jsonify({'success': False, 'message': 'Недостаточно прав'}), 403
+
+        # Ищем документ
+        document = db_select('documents', 'id = %s AND type_doc = 2', [doc_id], fetch_one=True)
+        if not document:
+            return jsonify({'success': False, 'message': 'Документ не найден'}), 404
+
+        # Удаляем файлы, если есть
+        pdf_path = document.get('pdf_path')
+        docx_path = document.get('docx_path')
+
+        if pdf_path:
+            storage_manager.delete_file(pdf_path)
+        if docx_path:
+            storage_manager.delete_file(docx_path)
+
+        # Удаляем запись из БД
+        db_query("DELETE FROM documents WHERE id = %s AND type_doc = 2", [doc_id])
+
+        return jsonify({'success': True, 'deleted_id': doc_id})
+
+    except Exception as e:
+        log_error_with_context(e, f"delete_document failed, doc_id={doc_id}")
+        return jsonify({'success': False, 'message': f'Ошибка: {str(e)}'}), 500
+
+
 @documents_bp.route('/<int:doc_id>/download', methods=['GET'])
 def download_document(doc_id):
     """Скачивание PDF документа"""
